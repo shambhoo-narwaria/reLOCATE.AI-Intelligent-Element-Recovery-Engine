@@ -21,3 +21,4 @@ Thumbs.db
 
 # Testcases containing patient translation lists or local data
 Testcase/AIHealing.json
+Testcase

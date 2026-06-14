@@ -28,11 +28,9 @@ export class TestRunner {
     console.log(`[TestRunner] Loaded ${steps.length} steps for testcase: "${testcase.ProjectName || 'Untitled'}"`);
 
     const browser = await chromium.launch({
+      // open window maximized, hide "Chrome is being controlled by automated software"
       headless: false,
-      args: [
-        '--start-maximized',          // open window maximized
-        '--disable-infobars',         // hide "Chrome is being controlled by automated software"
-      ],
+      args: ['--start-maximized', '--disable-infobars'],
     });
     const context = await browser.newContext({
       viewport: null,                 // null = use the actual maximized window size
@@ -408,8 +406,7 @@ export class TestRunner {
     // in virtually every web component library (ZUI, Material, Shoelace, etc.).
     // They intercept pointer events and are never valid click targets.
     const SHADOW_INTERNAL_ID_KEYWORDS = ['slot', 'wrapper', 'placeholder', 'container', 'inner'];
-    const isInternalById = (id: string) =>
-      id.length > 0 && SHADOW_INTERNAL_ID_KEYWORDS.some(kw => id.includes(kw));
+    const isInternalById = (id: string) => id.length > 0 && SHADOW_INTERNAL_ID_KEYWORDS.some(kw => id.includes(kw));
 
     candidates = candidates.filter(c => {
       const testId = (c.functional.dataTestId || '').toLowerCase();

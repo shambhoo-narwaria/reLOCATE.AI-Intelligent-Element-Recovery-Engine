@@ -28,7 +28,7 @@ graph TD
     G -->|No| H[Apply Best Heuristic Selector]
     G -->|Yes| I[Trigger AI Service: OpenAI or Gemini]
     I -->|JSON Response Schema| J[Select Top Candidate]
-    H --> K[Inject [data-ai-healed-id] Locator]
+    H --> K["Inject [data-ai-healed-id] Locator"]
     J --> K
     K -->|Visual Highlight| L[Perform Action & Log Output]
 ```

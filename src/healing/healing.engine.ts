@@ -126,8 +126,15 @@ export class HealingEngine {
       this.stats.totalAISelections++;
       
       try {
-        // Send the full tag filtered pool — no additional windowing to avoid losing the correct candidate
-        const aiResult = await this.aiProvider.askAI(original, sortedPool);
+        // Prune the candidate pool sent to the AI using the heuristic pre-scoring
+        const maxAiCandidates = parseInt(process.env.AI_MAX_CANDIDATES || '10', 10);
+        const topScoredCandidates = scoredPool.slice(0, maxAiCandidates);
+        const prunedPool = topScoredCandidates.map(item => item.candidate);
+
+        console.log(`[HealingEngine] Pruning candidate pool for AI: ${sortedPool.length} -> ${prunedPool.length} (Max limit: ${maxAiCandidates})`);
+        console.log(`[HealingEngine] Sending candidate IDs to AI: ${prunedPool.map(c => c.candidateId).join(', ')}`);
+
+        const aiResult = await this.aiProvider.askAI(original, prunedPool);
         const selectedCandidate = sortedPool.find(c => c.candidateId === aiResult.candidateId);
         
         if (selectedCandidate) {

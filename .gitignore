@@ -1,0 +1,20 @@
+# Dependency directories
+node_modules/
+
+# Local configuration files (contains API keys)
+.env
+.env.local
+.env.*.local
+
+# Diagnostic logs
+logs/
+*.log
+npm-debug.log*
+
+# TypeScript build outputs
+dist/
+out/
+
+# System files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,19 @@
+{
+  "name": "relocate-ai",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "ts-node runner.ts",
+    "simulate": "ts-node runner.ts --simulate"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "openai": "^4.52.0",
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.2"
+  }
+}

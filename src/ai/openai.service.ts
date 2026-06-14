@@ -1,0 +1,175 @@
+import { OpenAI } from 'openai';
+import { AIProvider } from '../interfaces/ai-provider.interface';
+import { OriginalElement } from '../interfaces/original-element.interface';
+import { Candidate } from '../interfaces/candidate.interface';
+import { logger } from '../logger/debug-logger';
+
+
+
+function cleanObject(val: any): any {
+  if (val === null || val === undefined) {
+    return undefined;
+  }
+  if (typeof val === 'string') {
+    return val.trim() === '' ? undefined : val;
+  }
+  if (typeof val === 'boolean') {
+    return val === false ? undefined : val;
+  }
+  if (Array.isArray(val)) {
+    const cleanedArr = val
+      .map(item => cleanObject(item))
+      .filter(item => item !== undefined && item !== null && item !== '');
+    return cleanedArr.length === 0 ? undefined : cleanedArr;
+  }
+  if (typeof val === 'object') {
+    const cleanedObj: Record<string, any> = {};
+    let hasKeys = false;
+    for (const key of Object.keys(val)) {
+      const cleanedVal = cleanObject(val[key]);
+      if (cleanedVal !== undefined && cleanedVal !== null) {
+        cleanedObj[key] = cleanedVal;
+        hasKeys = true;
+      }
+    }
+    return hasKeys ? cleanedObj : undefined;
+  }
+  return val;
+}
+
+export class OpenAIService implements AIProvider {
+  private openai: OpenAI;
+
+  constructor() {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.warn('[OpenAIService] Warning: OPENAI_API_KEY is not defined in environment variables.');
+    }
+    this.openai = new OpenAI({ apiKey });
+  }
+
+  async askAI(original: OriginalElement, candidates: Candidate[]): Promise<{
+    candidateId: number;
+    confidence: number;
+    reason: string;
+  }> {
+    // ── Original element signal summary (using flat parameter set recorded in testcases)
+    // Pre-parse shadow host tags from the original's XPath arrays for easier AI comparison
+    const shadowDomHostTags = (original.ShadowDomFullXpathArray || [])
+      .flatMap((xpath: string) =>
+        xpath.split('/').filter(Boolean)
+          .map(seg => seg.replace(/\[\d+\]/g, '').toUpperCase().trim())
+          .filter(tag => tag.includes('-'))  // only custom elements
+      );
+
+    const cleanedOriginal = cleanObject({
+      objectName:          original.ObjectName        || '',
+      tagName:             original.LocTagName         || '',
+      id:                  original.LocId              || '',
+      name:                original.LocName            || '',
+      className:           original.LocClassName        || '',
+      role:                original.role               || '',
+      inputType:           original.LocType || original.inputType || '',
+      interactionType:     original.interactionType    || original.Action || '',
+      accessibleName:      original.ObjectName || original.accessibleName || '',
+      locValue:            original.LocValue            || '',
+      labelText:           original.labelText          || '',
+      parentTag:           original.parentTag          || '',
+      parentId:            original.parentId           || '',
+      indexInParent:       original.indexInParent,
+      domDepth:            original.domDepth,
+      nearbyText:          original.NearByText         || [],
+      cssSelector:         original.LocCssSelector     || '',
+      fullXpath:           original.FullLocXpath       || '',
+      shadowDomFullXpathArray: original.ShadowDomFullXpathArray || [],
+      // Pre-parsed custom element tags from the shadow DOM XPath — directly comparable to candidate's shadowHostChain
+      shadowDomHostTags:   shadowDomHostTags.length > 0 ? [...new Set(shadowDomHostTags)] : undefined,
+    }) || {};
+
+    // ── Candidate signal summary (flat structure matching recorded properties)
+    // Token-optimized: removed nearbyText (noisy), cssSelector (unhelpful), xpath (empty).
+    // Added shadowHostChain, tableContext, landmarkRole, headingContext for better disambiguation.
+    const cleanedCandidates = candidates.map(c => {
+      const rawCandidate: Record<string, any> = {
+        candidateId:     c.candidateId,
+        tagName:         c.functional.tagName,
+        id:              c.functional.id,
+        name:            c.functional.name,
+        role:            c.functional.role || c.semantic.role,
+        inputType:       c.functional.inputType,
+        interactionType: c.behavior.interactionType,
+        accessibleName:  c.semantic.accessibleName || c.semantic.text,
+        value:           c.functional.value,
+        labelText:       c.neighborhood.closestLabel || c.neighborhood.associatedLabel,
+        parentTag:       c.structure.parentTag,
+        parentId:        c.structure.parentId,
+        indexInParent:   c.structure.indexInParent,
+        domDepth:        c.structure.domDepth,
+        // Full shadow host chain replaces single shadowHostName — critical disambiguator
+        shadowHostChain: c.ancestorContext.shadowHostChain?.length ? c.ancestorContext.shadowHostChain : undefined,
+        ancestorTagNames: c.ancestorContext.ancestorTagNames,
+        landmarkRole:    c.ancestorContext.landmarkRole || undefined,
+        headingContext:  c.ancestorContext.headingContext || undefined,
+      };
+      // Add table context only when element is inside a table (conditional to save tokens)
+      if (c.tableContext) {
+        rawCandidate.tableContext = c.tableContext;
+      }
+      return cleanObject(rawCandidate) || { candidateId: c.candidateId };
+    });
+
+    const systemPrompt = `You are an expert AI element healing system for web UI automation.
+Your task: Given the metadata of an original UI element that CANNOT be located on the current page, and a pool of candidate elements extracted from the current DOM, identify the single candidate MOST LIKELY to be the same logical element.
+
+Evaluation criteria (in priority order):
+1. SEMANTIC match (HIGHEST PRIORITY): Does the candidate's accessibleName or labelText closely match the original's ObjectName, accessibleName, or labelText?
+   *Dynamic Text*: Dropdown/select triggers may show the currently selected value (e.g. 'Active') instead of the default placeholder/label (e.g. 'Status'). Prioritize matching the host component over exact text match.
+2. FUNCTIONAL match: Does the tagName, role, id, name, or inputType match?
+   *CRITICAL — Shadow-internal IDs are NOT unique*: IDs like 'shadow-container', 'inner-wrapper', 'content-slot' repeat across every instance of a web component. When multiple candidates share the same id, disambiguate by accessibleName match against the original's ObjectName. Do NOT select based on id alone.
+3. BEHAVIORAL match: Does the interactionType (click/fill/check/select) match?
+4. SHADOW HOST CHAIN match (VERY IMPORTANT): The candidate's 'shadowHostChain' lists ALL custom element ancestors from outermost to innermost. The original's 'shadowDomHostTags' lists the custom element tags extracted from its XPath. Compare these two lists: the correct candidate's shadowHostChain should have the highest overlap with the original's shadowDomHostTags. A candidate nested inside the same web component hierarchy as the original is far more likely to be correct.
+5. CONTEXTUAL match: Do parentTag, ancestorTagNames, landmarkRole, or headingContext align?
+   *Table Context*: If the candidate has 'tableContext', verify the columnHeader matches the original's expected column context. The correct table cell will have the matching columnHeader.
+
+Output your response as a valid JSON object ONLY (no markdown, no explanation outside JSON):
+{
+  "candidateId": number,
+  "confidence": number (0.0 to 1.0),
+  "reason": "string (concise explanation of why this candidate was chosen)"
+}`;
+
+const userPrompt = `Original Element Metadata:
+${JSON.stringify(cleanedOriginal, null, 2)}
+
+Candidate Pool (${cleanedCandidates.length} candidates):
+${JSON.stringify(cleanedCandidates, null, 2)}
+
+Select the single best matching candidate. Output ONLY the JSON object.`;
+
+    // ── Write full AI request to debug file ──────────────────────────────────
+    logger.logAIRequest(
+      original.ObjectName || 'unknown',
+      cleanedOriginal,
+      cleanedCandidates,
+      systemPrompt,
+      userPrompt
+    );
+
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt   },
+      ],
+      response_format: { type: 'json_object' },
+    });
+
+    const content = response.choices[0].message.content || '{}';
+    const parsed  = JSON.parse(content);
+
+    // ── Write AI response to debug file ──────────────────────────────────────
+    logger.logAIResponse(original.ObjectName || 'unknown', parsed);
+
+    return parsed;
+  }
+}

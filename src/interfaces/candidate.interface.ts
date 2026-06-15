@@ -181,6 +181,8 @@ export interface CandidateVisual {
   fontWeight: string;
   /** font-size */
   fontSize: string;
+  /** Visual similarity index compared to original recorded screenshot [0, 1] */
+  similarity?: number;
 }
 
 // ── Table Context ─────────────────────────────────────────────────────────────

@@ -90,20 +90,6 @@ export class HealingEngine {
       }
     }
 
-    // 2c: ARIA-role sub-filter (when a role is recorded and is meaningful)
-    if (original.role) {
-      const origRole = original.role.toLowerCase().trim();
-      const roleFiltered = pool.filter(
-        c => (c.functional.role || c.semantic.role || '').toLowerCase() === origRole
-      );
-      if (roleFiltered.length > 0 && roleFiltered.length < pool.length) {
-        pool = roleFiltered;
-        console.log(`\n[HealingEngine] ── FILTER 2c: ARIA role = "${origRole}" ────────────────────`);
-        console.log(`[HealingEngine]    ${pool.length} candidates survived.`);
-        console.log(this.formatCandidates(pool));
-      }
-    }
-
     // ── Step 3: Rule-based scoring ────────────────────────────────────────────
     const sortedPool = [...pool].sort((a, b) => a.candidateId - b.candidateId);
     const scoredPool = this.scoringEngine.scoreCandidates(original, sortedPool);

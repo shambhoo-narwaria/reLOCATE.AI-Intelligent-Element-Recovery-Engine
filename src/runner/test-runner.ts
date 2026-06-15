@@ -5,6 +5,7 @@ import { HealingEngine } from '../healing/healing.engine';
 import { CandidateFinder } from './candidate-finder';
 import { ElementValidator } from './element-validator';
 import { OriginalElement } from '../interfaces/original-element.interface';
+import { Candidate } from '../interfaces/candidate.interface';
 import { logger } from '../logger/debug-logger';
 
 export class TestRunner {
@@ -85,8 +86,8 @@ export class TestRunner {
             // timing out for 30 seconds and crashing the run.
             const isDisabled = await element.isDisabled().catch(() => false);
             if (isDisabled) {
-              console.warn(`[TestRunner] ⚠  Element "${result.newLocator}" for step "${step.ObjectName}" is DISABLED. Skipping action to avoid 30s timeout.`);
-              console.warn(`[TestRunner] ⚠  This usually means a prerequisite step did not complete correctly (form not ready, validation pending, etc.).`);
+              console.warn(`[TestRunner] ⚠  Element "${result.newLocator}" for step "${step.ObjectName}" is DISABLED.`);
+              throw new Error(`Element "${result.newLocator}" is disabled. Prerequisite step may not have completed or page not loaded properly.`);
             } else if (step.Action === 'Click') {
               console.log(`[TestRunner] Clicking element: "${result.newLocator}"`);
               try {
@@ -120,22 +121,12 @@ export class TestRunner {
             }
           } catch (actionErr: any) {
             const msg: string = actionErr?.message || String(actionErr);
-            const isDisabledTimeout = msg.includes('not enabled') || msg.includes('element is disabled');
-            if (isDisabledTimeout) {
-              // Element found but disabled — don't crash the entire run
-              console.warn(`[TestRunner] ⚠  Action timed out because element "${result.newLocator}" is disabled. Skipping step "${step.ObjectName}" and continuing.`);
-              if (result.didHeal) {
-                logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, `Failed: ${msg}`);
-                this.healingEngine.recordOutcome(result.oldLocator, result.newLocator, false, result.triggeredAI, result.confidence);
-              }
-            } else {
-              console.error(`[TestRunner] Action execution failed on element.`, actionErr);
-              if (result.didHeal) {
-                logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, `Failed: ${msg}`);
-                this.healingEngine.recordOutcome(result.oldLocator, result.newLocator, false, result.triggeredAI, result.confidence);
-              }
-              throw actionErr;
+            console.error(`[TestRunner] Action execution failed on element: "${result.newLocator}"`, actionErr);
+            if (result.didHeal) {
+              logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, `Failed: ${msg}`);
+              this.healingEngine.recordOutcome(result.oldLocator, result.newLocator, false, result.triggeredAI, result.confidence);
             }
+            throw actionErr;
           }
         } else {
           console.log(`[TestRunner] Action "${step.Action}" not recognized. Skipping step.`);
@@ -211,7 +202,7 @@ export class TestRunner {
     const originalLocator = locCss || locXpath || '';
 
     // as the testing purpose break the classical locators on any step
-    const shouldForceAI = [17].includes(stepIndex);
+    const shouldForceAI = [7, 8].includes(stepIndex);
 
     // Helper function to try locating the element using original locators
     const tryOriginalLocators = async (timeoutMs: number): Promise<Locator | null> => {
@@ -488,6 +479,243 @@ export class TestRunner {
     console.log(`[TestRunner] Extracted ${candidates.length} candidate elements from page.`);
     console.log(`[TestRunner] Scraped Candidates:\n`, candidates.map(c => `tag=${c.functional.tagName} css=${c.functional.cssSelector} text="${c.semantic.accessibleName}"`).slice(0, 15).join('\n') + (candidates.length > 15 ? '\n  - ...' : ''));
 
+    // ── Visual Verification: calculate screenshot similarity ─────────────────
+    if (step.Screenshot && step.ElementViewportRect && Array.isArray(step.ElementViewportRect) && step.ElementViewportRect.length === 4) {
+      console.log(`[TestRunner] Initializing visual verification matching...`);
+      try {
+        // Pre-filter candidates to prevent visual comparison on irrelevant elements
+        const tagFilteredCandidates = this.getFilteredCandidates(step, candidates);
+
+        console.log(`[TestRunner] Restricting visual comparison to ${tagFilteredCandidates.length} tag-matched candidates (out of ${candidates.length} total).`);
+
+        const currentScreenshotB64 = await page.screenshot({ type: 'jpeg', quality: 80 }).then(buf => buf.toString('base64'));
+        const originalScreenshotB64 = step.Screenshot;
+        const originalRect = step.ElementViewportRect;
+
+        // Extract candidates bounds and IDs
+        const candidateBounds = await page.evaluate((cands) => {
+          return cands.map(c => {
+            const el = document.querySelector(`[data-ai-healed-id="${c.candidateId}"]`);
+            if (el) {
+              const rect = el.getBoundingClientRect();
+              return {
+                candidateId: c.candidateId,
+                rect: {
+                  left: rect.left,
+                  top: rect.top,
+                  width: rect.width,
+                  height: rect.height
+                }
+              };
+            }
+            return { candidateId: c.candidateId, rect: null };
+          });
+        }, tagFilteredCandidates);
+
+        // Run comparison in page context
+        const similarities: any[] = await page.evaluate(async ({ originalB64, currentB64, originalRect, candidatesData, devicePixelRatio }) => {
+          const loadImage = (src: string): Promise<HTMLImageElement> => {
+            return new Promise((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => resolve(img);
+              img.onerror = reject;
+              img.src = src;
+            });
+          };
+
+          const getGrayscale = (imgData: Uint8ClampedArray): Float32Array => {
+            const gray = new Float32Array(imgData.length / 4);
+            for (let i = 0; i < imgData.length; i += 4) {
+              gray[i / 4] = 0.299 * imgData[i] + 0.587 * imgData[i + 1] + 0.114 * imgData[i + 2];
+            }
+            return gray;
+          };
+
+          const getEdges = (gray: Float32Array, w: number, h: number): Float32Array => {
+            const edges = new Float32Array(w * h);
+            for (let y = 0; y < h; y++) {
+              for (let x = 0; x < w; x++) {
+                const idx = y * w + x;
+                const val = gray[idx];
+                const valRight = (x < w - 1) ? gray[idx + 1] : val;
+                const valDown = (y < h - 1) ? gray[idx + w] : val;
+                const dx = valRight - val;
+                const dy = valDown - val;
+                edges[idx] = Math.abs(dx) + Math.abs(dy);
+              }
+            }
+            return edges;
+          };
+
+          const blurEdges = (edges: Float32Array, w: number, h: number): Float32Array => {
+            const blurred = new Float32Array(w * h);
+            for (let y = 0; y < h; y++) {
+              for (let x = 0; x < w; x++) {
+                let sum = 0;
+                let count = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                  const ny = y + dy;
+                  if (ny < 0 || ny >= h) continue;
+                  for (let dx = -1; dx <= 1; dx++) {
+                    const nx = x + dx;
+                    if (nx < 0 || nx >= w) continue;
+                    sum += edges[ny * w + nx];
+                    count++;
+                  }
+                }
+                blurred[y * w + x] = sum / count;
+              }
+            }
+            return blurred;
+          };
+
+          try {
+            const imgOrig = await loadImage("data:image/jpeg;base64," + originalB64);
+            const imgCurr = await loadImage("data:image/jpeg;base64," + currentB64);
+
+            const [origLeft, origTop, origRight, origBottom] = originalRect;
+            const origW = origRight - origLeft;
+            const origH = origBottom - origTop;
+
+            if (origW <= 0 || origH <= 0) {
+              return candidatesData.map((c: any) => ({ candidateId: c.candidateId, similarity: 0.5 }));
+            }
+
+            // Proportional target canvas dimensions based on original element (capped at 256px max)
+            const maxDimOrig = Math.max(origW, origH);
+            const scaleOrig = 256 / maxDimOrig;
+            const targetW = Math.max(1, Math.round(origW * scaleOrig));
+            const targetH = Math.max(1, Math.round(origH * scaleOrig));
+
+            // Create canvas for original element crop
+            const canvasOrig = document.createElement('canvas');
+            canvasOrig.width = targetW;
+            canvasOrig.height = targetH;
+            const ctxOrig = canvasOrig.getContext('2d');
+            if (!ctxOrig) return candidatesData.map((c: any) => ({ candidateId: c.candidateId, similarity: 0.5 }));
+
+            ctxOrig.drawImage(imgOrig, origLeft, origTop, origW, origH, 0, 0, targetW, targetH);
+            const dataOrig = ctxOrig.getImageData(0, 0, targetW, targetH).data;
+            const origImgData = canvasOrig.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+
+            // Pre-calculate original edge map and blur it
+            const grayOrig = getGrayscale(dataOrig);
+            const edgesOrig = getEdges(grayOrig, targetW, targetH);
+            const blurredOrig = blurEdges(edgesOrig, targetW, targetH);
+
+            const results = [];
+            for (const c of candidatesData) {
+              if (!c.rect || c.rect.width <= 0 || c.rect.height <= 0) {
+                results.push({ candidateId: c.candidateId, similarity: 0.5 });
+                continue;
+              }
+
+              // Create canvas for candidate crop
+              const canvasCand = document.createElement('canvas');
+              canvasCand.width = targetW;
+              canvasCand.height = targetH;
+              const ctxCand = canvasCand.getContext('2d');
+              if (!ctxCand) {
+                results.push({ candidateId: c.candidateId, similarity: 0.5 });
+                continue;
+              }
+
+              // Convert logical CSS coordinates to physical pixels
+              const candLeft = c.rect.left * devicePixelRatio;
+              const candTop = c.rect.top * devicePixelRatio;
+              const candW = c.rect.width * devicePixelRatio;
+              const candH = c.rect.height * devicePixelRatio;
+
+              ctxCand.drawImage(imgCurr, candLeft, candTop, candW, candH, 0, 0, targetW, targetH);
+              const dataCand = ctxCand.getImageData(0, 0, targetW, targetH).data;
+
+              // Compute candidate edge map and blur it
+              const grayCand = getGrayscale(dataCand);
+              const edgesCand = getEdges(grayCand, targetW, targetH);
+              const blurredCand = blurEdges(edgesCand, targetW, targetH);
+
+              // Compare original vs candidate blurred edge maps using Weighted Jaccard Similarity (intersection over union of edges)
+              let sumMin = 0;
+              let sumMax = 0;
+              for (let i = 0; i < blurredOrig.length; i++) {
+                const o = blurredOrig[i];
+                const c = blurredCand[i];
+                sumMin += Math.min(o, c);
+                sumMax += Math.max(o, c);
+              }
+
+              const similarity = sumMax > 0.001 ? (sumMin / sumMax) : 1.0;
+
+              // Annotate candidate canvas (with lower Jaccard threshold reflecting wider, more sensitive score range)
+              if (similarity > 0.70) {
+                ctxCand.strokeStyle = '#22CC44'; // Green for high similarity
+              } else {
+                ctxCand.strokeStyle = '#FF2244'; // Red for low similarity
+              }
+              ctxCand.lineWidth = 2;
+              ctxCand.strokeRect(0, 0, targetW, targetH);
+
+              const candImgData = canvasCand.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+
+              results.push({ 
+                candidateId: c.candidateId, 
+                similarity, 
+                origImgData, 
+                candImgData 
+              });
+            }
+            return results;
+          } catch (err) {
+            console.error('Image loading/processing failed:', err);
+            return candidatesData.map((c: any) => ({ candidateId: c.candidateId, similarity: 0.5 }));
+          }
+        }, {
+          originalB64: originalScreenshotB64,
+          currentB64: currentScreenshotB64,
+          originalRect: originalRect,
+          candidatesData: candidateBounds,
+          devicePixelRatio: await page.evaluate(() => window.devicePixelRatio || 1)
+        });
+
+        // Map results back to candidates list
+        const similarityMap = new Map(similarities.map((s: any) => [s.candidateId, s.similarity]));
+        candidates.forEach(c => {
+          c.visual.similarity = similarityMap.get(c.candidateId) ?? 0.5;
+        });
+
+        // Save visual debug images
+        const debugDir = path.join(process.cwd(), 'logs', 'visual-debug', `step-${stepIndex + 1}`);
+        if (!fs.existsSync(debugDir)) {
+          fs.mkdirSync(debugDir, { recursive: true });
+        }
+
+        // Save original template (first one has it)
+        const firstWithImg = similarities.find((s: any) => s.origImgData);
+        if (firstWithImg) {
+          fs.writeFileSync(path.join(debugDir, `original_template.png`), Buffer.from(firstWithImg.origImgData, 'base64'));
+        }
+
+        similarities.forEach((s: any) => {
+          if (s.candImgData) {
+            const fileName = `candidate_${s.candidateId}_score_${s.similarity.toFixed(2)}.png`;
+            fs.writeFileSync(path.join(debugDir, fileName), Buffer.from(s.candImgData, 'base64'));
+          }
+        });
+
+        console.log(`[TestRunner] Visual verification scores mapped to candidate pool and logged under logs/visual-debug/step-${stepIndex + 1}/`);
+      } catch (err) {
+        console.warn(`[TestRunner] Visual comparison failed, defaulting to neutral similarity scores.`, err);
+        candidates.forEach(c => {
+          c.visual.similarity = 0.5;
+        });
+      }
+    } else {
+      console.log(`[TestRunner] Step has no recorded Screenshot/ElementViewportRect data. Defaulting to neutral visual similarity.`);
+      candidates.forEach(c => {
+        c.visual.similarity = 0.5;
+      });
+    }
+
     // Perform healing
     const healResult = await this.healingEngine.heal(step, candidates);
     console.log(`[TestRunner] Healing engine successfully resolved locator:`);
@@ -599,5 +827,59 @@ export class TestRunner {
       throw err;
     }
     console.log(`[TestRunner] Page stabilization complete.`);
+  }
+
+  private getFilteredCandidates(step: OriginalElement, candidates: Candidate[]): Candidate[] {
+    const origTag = (step.OrigTagName || '').toUpperCase().trim();
+    const shadowHostTagsSet = new Set<string>();
+
+    (step.ShadowDomHostArray || []).forEach((sel: string) => {
+      const parts = sel.split(/[\s>+~]+/);
+      parts.forEach(part => {
+        const match = part.match(/^([a-zA-Z0-9-]+)/);
+        if (match) {
+          const tag = match[1].toUpperCase();
+          if (tag && tag !== 'HTML' && tag !== 'BODY') {
+            shadowHostTagsSet.add(tag);
+          }
+        }
+      });
+    });
+
+    (step.ShadowDomFullXpathArray || []).forEach((xpath: string) => {
+      xpath.split('/').filter(Boolean).forEach(seg => {
+        const tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
+        if (tag && tag !== 'HTML' && tag !== 'BODY') {
+          shadowHostTagsSet.add(tag);
+        }
+      });
+    });
+
+    const shadowHostTags = [...shadowHostTagsSet];
+    let pool = candidates;
+
+    // 2a: Tag name filter
+    if (origTag) {
+      const filtered = candidates.filter(c => {
+        const cTag = c.functional.tagName.toUpperCase();
+        return cTag === origTag || shadowHostTags.includes(cTag);
+      });
+      if (filtered.length > 0) {
+        pool = filtered;
+      }
+    }
+
+    // 2b: Input type sub-filter
+    if (origTag === 'INPUT' && step.inputType) {
+      const origInputType = step.inputType.toLowerCase().trim();
+      const inputTypeFiltered = pool.filter(
+        c => (c.functional.inputType || '').toLowerCase() === origInputType
+      );
+      if (inputTypeFiltered.length > 0) {
+        pool = inputTypeFiltered;
+      }
+    }
+
+    return pool;
   }
 }

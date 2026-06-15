@@ -53,12 +53,10 @@ flowchart TD
     Stabilize --> Scrape[Scrape DOM & Shadow Root candidates]:::action
     Scrape --> Filter[Apply Shadow-internal & skeleton filters]:::action
     Filter --> Score[Apply 9 Scoring Rules & Weightings]:::action
-    Score --> ForceAICheck{Is forceAI enabled for step?}:::condition
     
-    ForceAICheck -->|Yes| TriggerAI[Trigger LLM Reasoning Layer]:::aiAction
-    ForceAICheck -->|No| MaxScoreCheck{Is best candidate score >= 90?}:::condition
+    Score --> MaxScoreCheck{Is best candidate score >= 90?}:::condition
     
-    MaxScoreCheck -->|No| TriggerAI
+    MaxScoreCheck -->|No| TriggerAI[Trigger LLM Reasoning Layer]:::aiAction
     MaxScoreCheck -->|Yes| MarginCheck{Is score gap to runner-up >= 5?}:::condition
     
     MarginCheck -->|No| TriggerAI
@@ -85,7 +83,10 @@ flowchart TD
 
 ## 3. The 9-Tier Scoring Pipeline
 
-Before any LLM call is made, the **Scoring Engine** evaluates every single candidate element against **9 distinct metrics**. Each metric calculates a score (0.0 to 1.0) which is multiplied by the rule's weight:
+Before any LLM call is made, the **Scoring Engine** evaluates every single candidate element against **9 distinct metrics**. Each metric calculates a score (0.0 to 1.0) which is multiplied by the rule's weight.
+
+### Candidate Pool Pruning (Top 10 Selection)
+The 9-tier scoring engine acts as a **relevance pre-filter** to prune the large candidate pool (which can contain hundreds of elements). By sorting candidates by their heuristic score, the orchestrator narrows the candidate pool down to the **top 10 candidates** (configurable via `AI_MAX_CANDIDATES` in the `.env` file) before passing them to the AI Reasoning Layer. This drastically reduces token consumption, cuts down API cost/latency, and prevents model confusion.
 
 ```mermaid
 graph LR
@@ -114,16 +115,53 @@ graph LR
     R9 --> Total
 ```
 
-### Quick Summary of the 9 Rules:
-1.  **ObjectNameRule (30)**: Compares the text similarity (Levenshtein Distance) of the recorded element name against the candidate's text.
-2.  **VisualSimilarityRule (20)**: Extracts visual edge maps of the candidate element and compares them directly to the original screenshot template using Jaccard Similarity.
-3.  **RoleRule (15)**: Confirms matches on tag names and accessibility ARIA roles, including host element tag matching.
-4.  **AncestorPathRule (15)**: Computes a Longest Common Subsequence (LCS) score of custom element shadow-host paths to ensure hierarchical context match.
-5.  **LabelTextRule (15)**: Scores candidates based on matches with associated labels (like `<label for="...">`).
-6.  **ParentContextRule (10)**: Checks if the direct parent's tag name and ID match the original element's parent structure.
-7.  **ClassNameRule (10)**: Scores class matches using Jaccard token set similarity, ignoring environment-specific noise (like Angular `_ngcontent` hashes).
-8.  **NearbyTextRule (5)**: Verifies visual neighbors by comparing sibling/adjacent text content on the page.
-9.  **DomStructureRule (5)**: Compares depth in the DOM tree and sibling child order position.
+### Detailed Breakdown of the 9 Rules
+
+The rules are divided into **Algorithmic Rules** (which use mathematical distance, index, or sequence alignment algorithms) and **Direct Match Rules** (which use simple string/numeric equality lookups).
+
+#### 1. Algorithmic Rules (Advanced String, Set & Pixel Calculations)
+
+*   **`ObjectNameRule` (Weight: 30)**
+    *   **Mechanism**: Compares the recorded element name (or fallback text) against the candidate's display text and accessible name.
+    *   **Algorithm Used**: **Levenshtein Distance** (Normalized Edit Distance). Evaluates the minimum single-character edits needed to transform one text string into the other.
+
+*   **`VisualSimilarityRule` (Weight: 20)**
+    *   **Mechanism**: Compares the visual structure of the element on screen against the recorded screenshot template crop.
+    *   **Algorithm Used**: **Weighted Jaccard Similarity on Box-Blurred Edge Maps**. Approximate Sobel gradients are calculated for horizontal and vertical pixel shifts to form an edge map, which is then box-blurred. The final score is the intersection-over-union of the overlapping edge intensities.
+
+*   **`AncestorPathRule` (Weight: 15)**
+    *   **Mechanism**: Assesses the tag sequence similarity of parent and ancestor paths (including shadow-root hosts).
+    *   **Algorithm Used**: **Longest Common Subsequence (LCS)**. Aligning custom components and parent tag arrays (ordered innermost to outermost) using sequence matching to reward candidates sharing the same structural tree trajectory.
+
+*   **`LabelTextRule` (Weight: 15)**
+    *   **Mechanism**: Compares candidate associated form/element labels with the original recorded element label text.
+    *   **Algorithm Used**: **Levenshtein Distance** (Normalized Edit Distance) for text alignment.
+
+*   **`ClassNameRule` (Weight: 10)**
+    *   **Mechanism**: Validates CSS class names, ignoring environment-specific noise (like Angular `_ngcontent-*` or `_nghost-*` hashes).
+    *   **Algorithm Used**: **Jaccard Token Index Similarity**. Splitting class strings into distinct sets of tokens and calculating:
+        $$Jaccard = \frac{|Set_{orig} \cap Set_{cand}|}{|Set_{orig} \cup Set_{cand}|}$$
+
+*   **`NearbyTextRule` (Weight: 5)**
+    *   **Mechanism**: Evaluates context from nearby elements (sibling and parent lines).
+    *   **Algorithm Used**: **Levenshtein Distance & Substring Containment** to match visual visual neighborhoods.
+
+---
+
+#### 2. Direct Match Rules (Simple Value Comparisons)
+
+*   **`RoleRule` (Weight: 15)**
+    *   **Mechanism**: Verifies element type (`tagName`) and accessibility role alignment. It also scans `ShadowDomHostArray` to match custom components.
+    *   **Algorithm Used**: **Direct String Equality & Set Membership Lookup** (e.g. `'BUTTON' === 'BUTTON'`). No distance algorithms are applied.
+
+*   **`ParentContextRule` (Weight: 10)**
+    *   **Mechanism**: Evaluates the tag name and ID of the direct parent element.
+    *   **Algorithm Used**: **Direct String Equality** (e.g. `parent.id === recordedParent.id`).
+
+*   **`DomStructureRule` (Weight: 5)**
+    *   **Mechanism**: Evaluates relative position indices and tree depth coordinates.
+    *   **Algorithm Used**: **Numerical Difference Ratio**. No string/text algorithms are used. Calculated via direct numerical distance ratios:
+        $$Score = 1 - \frac{|Depth_{orig} - Depth_{cand}|}{\max(Depth_{orig}, Depth_{cand})}$$
 
 ---
 

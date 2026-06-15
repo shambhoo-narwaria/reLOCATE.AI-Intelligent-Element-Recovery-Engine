@@ -27,7 +27,7 @@ export class HealingEngine {
     // before any scoring or AI reasoning begins.
 
     // 2a: Tag-name filter (including shadow host tags as valid alternatives)
-    const origTag = (original.LocTagName || '').toUpperCase().trim();
+    const origTag = (original.OrigTagName || '').toUpperCase().trim();
     const shadowHostTagsSet = new Set<string>();
 
     // Extract tags from ShadowDomHostArray (selectors)

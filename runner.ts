@@ -8,6 +8,7 @@ dotenv.config({ path: path.resolve(__dirname, './.env') });
 import { OpenAIService } from './src/ai/openai.service';
 import { GeminiService } from './src/ai/gemini.service';
 import { VLLMService } from './src/ai/vllm.service';
+import { OpenRouterService } from './src/ai/openrouter.service';
 import { ScoringEngine } from './src/scoring/scoring.engine';
 import { HealingEngine } from './src/healing/healing.engine';
 
@@ -19,6 +20,7 @@ import { NearbyTextRule } from './src/scoring/rules/nearby-text.rule';
 import { ParentContextRule } from './src/scoring/rules/parent-context.rule';
 import { DomStructureRule } from './src/scoring/rules/dom-structure.rule';
 import { AncestorPathRule } from './src/scoring/rules/ancestor-path.rule';
+import { ClassNameRule } from './src/scoring/rules/class-name.rule';
 
 // Import Runner components
 import { CandidateFinder } from './src/runner/candidate-finder';
@@ -35,6 +37,9 @@ async function bootstrap() {
   } else if (providerType === 'vllm') {
     console.log('[Bootstrap] Initializing EC2/vLLM AI Service (Qwen)...');
     aiProvider = new VLLMService();
+  } else if (providerType === 'openrouter') {
+    console.log('[Bootstrap] Initializing OpenRouter Service (Qwen)...');
+    aiProvider = new OpenRouterService();
   } else {
     console.log('[Bootstrap] Initializing OpenAI AI Service...');
     aiProvider = new OpenAIService();
@@ -49,6 +54,7 @@ async function bootstrap() {
     new NearbyTextRule(),       // weight  5 – sibling & nearby text
     new ParentContextRule(),    // weight 10 – parent tag / id
     new DomStructureRule(),     // weight  5 – DOM depth & index
+    new ClassNameRule(),        // weight 15 – CSS class matching
   ];
   
   const scoringEngine = new ScoringEngine(rules);

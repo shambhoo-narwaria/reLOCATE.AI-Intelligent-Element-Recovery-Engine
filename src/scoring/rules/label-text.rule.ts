@@ -12,7 +12,7 @@ export class LabelTextRule implements ScoringRule {
   readonly weight = 15;
 
   calculate(original: OriginalElement, candidate: Candidate): number {
-    const origName = (original.ObjectName || original.LocName || original.accessibleName || '').toLowerCase().trim();
+    const origName = (original.LocText || original.LocTitle || original.OwnInnerText || original.LocName || original.accessibleName || '').toLowerCase().trim();
     if (!origName) return 0;
 
     const sources = [

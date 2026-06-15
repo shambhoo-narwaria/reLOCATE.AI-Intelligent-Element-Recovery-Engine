@@ -8,7 +8,7 @@ import { OriginalElement } from '../interfaces/original-element.interface';
 import { logger } from '../logger/debug-logger';
 
 export class TestRunner {
-  private testCasePath = path.resolve(__dirname, '../../Testcase/AIHealing.json');
+  private testCasePath = path.resolve(__dirname, '../../Testcase/NeuroTestcase.json');
 
   constructor(
     private healingEngine: HealingEngine,
@@ -211,7 +211,7 @@ export class TestRunner {
     const originalLocator = locCss || locXpath || '';
 
     // as the testing purpose break the classical locators on any step
-    const shouldForceAI = [11, 14, 18, 28, 31].includes(stepIndex);
+    const shouldForceAI = [17].includes(stepIndex);
 
     // Helper function to try locating the element using original locators
     const tryOriginalLocators = async (timeoutMs: number): Promise<Locator | null> => {
@@ -367,38 +367,14 @@ export class TestRunner {
     // Locator STILL failed, trigger AI healing!
     console.warn(`[TestRunner] Original locators genuinely failed for object "${step.ObjectName}". Initializing healing engine...`);
 
-    // ── Domain mismatch guard ────────────────────────────────────────────────
-    // If the browser is on a completely different domain, the element legitimately 
-    // no longer exists on this page. We compare ONLY the origin (protocol + hostname + port), 
-    // NOT the path, because the path may contain dynamic segments.
-    const stepUrl = step.URL || step.sourceUrl || '';
-    if (stepUrl) {
-      try {
-        const recordedOrigin = new URL(stepUrl).origin;         // protocol+hostname+port only
-        const currentOrigin  = new URL(page.url()).origin;
-        if (recordedOrigin !== currentOrigin) {
-          console.warn(`[TestRunner] ⚠  Domain mismatch — recorded origin: "${recordedOrigin}", current: "${currentOrigin}"`);
-          console.warn(`[TestRunner] ⚠  The browser is on a completely different domain. Skipping healing for step "${step.ObjectName}".`);
-          // Return a dummy locator pointing at body so the runner can continue
-          return {
-            locator: page.locator('body').first(),
-            oldLocator: originalLocator,
-            newLocator: 'body',
-            didHeal: false,
-            triggeredAI: false,
-            confidence: 0
-          };
-        }
-      console.log(`[TestRunner] Origin check passed: "${currentOrigin}" — same domain as recorded step.`);
-      } catch { /* URL parse error — proceed to healing */ }
-    }
+    // (Domain mismatch check removed as requested)
     
     // Ensure the page is fully loaded before scraping candidates and creating the AI payload
     console.log(`[TestRunner] Ensuring page is fully loaded before creating AI payload...`);
     await this.waitForPageSettle(page);
 
     // Scrape candidates with loading retries
-    let candidates = await this.candidateFinder.findCandidates(page, step.LocTagName);
+    let candidates = await this.candidateFinder.findCandidates(page, step.OrigTagName);
 
     // ── Filter shadow-internal and loading-placeholder elements ──────────────
     // Generic keyword-based heuristic: elements with IDs containing 'slot',
@@ -455,12 +431,12 @@ export class TestRunner {
       return !hasAnyMeaningful && hasCssHash;
     };
 
-    let retries = 5;
+    let retries = 2;
     while ((candidates.length === 0 || isLoadingStateDom(candidates)) && retries > 0) {
       const reason = candidates.length === 0 ? '0 candidates' : 'page still in loading-state (CSS-in-JS hashes only)';
       console.log(`[TestRunner] ${reason}. Retrying in 2000ms... (${retries} retries left)`);
       await page.waitForTimeout(2000);
-      candidates = await this.candidateFinder.findCandidates(page, step.LocTagName);
+      candidates = await this.candidateFinder.findCandidates(page, step.OrigTagName);
       candidates = candidates.filter(c => {
         const testId = (c.functional.dataTestId || '').toLowerCase();
         const css    = (c.functional.cssSelector || '').toLowerCase();
@@ -479,16 +455,20 @@ export class TestRunner {
     // overlap with ObjectName + NearByText, then keep the top MAX_CANDIDATES.
     const MAX_CANDIDATES = 60;
     if (candidates.length > MAX_CANDIDATES) {
-      const objectWords = (step.ObjectName || '').toLowerCase().split(/\W+/).filter(Boolean);
-      const nearbyWords = (step.NearByText || [])
-        .join(' ').toLowerCase().split(/\W+/).filter(Boolean);
-      const allKeywords = [...new Set([...objectWords, ...nearbyWords])];
+      const resolvedName = (step.LocText || step.LocTitle || step.OwnInnerText || '').trim();
+      const objectWords = resolvedName.toLowerCase().split(/\W+/).filter(Boolean);
+      const nearbyWords = (step.NearByText || []).slice(0, 4).join(' ').toLowerCase().split(/\W+/).filter(Boolean);
+      // Include class name words for robust matching of unlabeled elements
+      const classWords = (step.LocClassName || '').toLowerCase().split(/\W+/).filter(Boolean);
+
+      const allKeywords = [...new Set([...objectWords, ...nearbyWords, ...classWords])];
 
       const scored = candidates.map(c => {
         const haystack = [
           c.semantic.text,
           c.semantic.accessibleName,
           c.functional.cssSelector,
+          c.functional.className,
           c.functional.dataTestId,
           c.functional.id,
           c.functional.ariaLabel,
@@ -506,9 +486,7 @@ export class TestRunner {
     }
 
     console.log(`[TestRunner] Extracted ${candidates.length} candidate elements from page.`);
-    console.log(`[TestRunner] Scraped Candidates:\n`, candidates
-      .map(c => `  - [ID ${c.candidateId}] tag=${c.functional.tagName} css=${c.functional.cssSelector} text="${c.semantic.accessibleName}"`)
-      .slice(0, 15).join('\n') + (candidates.length > 15 ? '\n  - ...' : ''));
+    console.log(`[TestRunner] Scraped Candidates:\n`, candidates.map(c => `tag=${c.functional.tagName} css=${c.functional.cssSelector} text="${c.semantic.accessibleName}"`).slice(0, 15).join('\n') + (candidates.length > 15 ? '\n  - ...' : ''));
 
     // Perform healing
     const healResult = await this.healingEngine.heal(step, candidates);

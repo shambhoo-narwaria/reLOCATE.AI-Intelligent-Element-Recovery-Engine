@@ -13,8 +13,11 @@ export class ObjectNameRule implements ScoringRule {
   readonly weight = 30;
 
   calculate(original: OriginalElement, candidate: Candidate): number {
-    const origName = (original.ObjectName || original.LocName || original.accessibleName || '').toLowerCase().trim();
+    const isInput = ['INPUT', 'TEXTAREA'].includes((original.OrigTagName || '').toUpperCase().trim());
 
+    // For input elements, use original.ObjectName.
+    // For non-input elements, use only LocText || LocTitle || OwnInnerText.
+    const origName   = (isInput ? (original.ObjectName || '') : (original.LocText || original.LocTitle || original.OwnInnerText || '')).toLowerCase().trim();
     const candName   = candidate.semantic.accessibleName.toLowerCase().trim();
     const candLabel  = candidate.neighborhood.closestLabel.toLowerCase().trim();
     const candText   = candidate.semantic.text.toLowerCase().trim();

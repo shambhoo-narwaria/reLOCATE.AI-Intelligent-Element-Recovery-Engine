@@ -11,7 +11,7 @@ export class RoleRule implements ScoringRule {
   readonly weight = 15;
 
   calculate(original: OriginalElement, candidate: Candidate): number {
-    const origRole = (original.LocTagName || original.role || '').toLowerCase().trim();
+    const origRole = (original.OrigTagName || original.role || '').toLowerCase().trim();
     const candRole = (candidate.functional.tagName || candidate.functional.role || '').toLowerCase().trim();
     const candAriaRole = candidate.functional.role.toLowerCase().trim();
 

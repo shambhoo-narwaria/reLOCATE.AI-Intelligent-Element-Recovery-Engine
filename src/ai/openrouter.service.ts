@@ -35,20 +35,25 @@ function cleanObject(val: any): any {
   return val;
 }
 
-export class VLLMService implements AIProvider {
+export class OpenRouterService implements AIProvider {
   private openai: OpenAI;
   private modelName: string;
 
   constructor() {
-    const baseURL = process.env.VLLM_BASE_URL;
-    if (!baseURL) {
-      console.warn('[VLLMService] Warning: VLLM_BASE_URL is not defined in environment variables. Defaulting to http://localhost:8000/v1');
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      console.warn('[OpenRouterService] Warning: OPENROUTER_API_KEY is not defined in environment variables.');
     }
+    const baseURL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
     this.openai = new OpenAI({
-      apiKey: process.env.VLLM_API_KEY || 'dummy-key',
-      baseURL: baseURL || 'http://localhost:8000/v1',
+      apiKey: apiKey || 'dummy-key',
+      baseURL: baseURL,
+      defaultHeaders: {
+        'HTTP-Referer': 'https://github.com/google-deepmind/antigravity',
+        'X-Title': 'AI-Element-Identifier',
+      }
     });
-    this.modelName = process.env.VLLM_MODEL_NAME || 'Qwen/Qwen2.5-14B-Instruct';
+    this.modelName = process.env.OPENROUTER_MODEL_NAME || 'qwen/qwen-2.5-7b-instruct:free';
   }
 
   async askAI(original: OriginalElement, candidates: Candidate[]): Promise<{
@@ -126,7 +131,7 @@ Evaluation criteria (in priority order):
    *Dynamic Text*: Dropdown/select triggers may show the currently selected value (e.g. 'Active') instead of the default placeholder/label (e.g. 'Status'). Prioritize matching the host component over exact text match.
 2. FUNCTIONAL match: Does the tagName, role, id, name, or inputType match?
    *CRITICAL — Shadow-internal IDs are NOT unique*: IDs like 'shadow-container', 'inner-wrapper', 'content-slot' repeat across every instance of a web component. When multiple candidates share the same id, disambiguate by accessibleName match against the original's ObjectName. Do NOT select based on id alone.
-   *CRITICAL — Dynamic IDs & Attributes*: IDs like 'cdk-overlay-X', 'mat-option-Y', or framework-generated attributes/classes containing random hashes or prefixes (e.g., '_ngcontent-...') are dynamic and change across page reloads/sessions. Do NOT penalize a mismatch on these dynamic IDs/classes; instead, focus on the static/semantic parts of the ID or class.
+   *CRITICAL — Dynamic IDs & Attributes*: IDs or framework-generated attributes/classes containing random hashes or prefixes are dynamic and change across page reloads/sessions. Do NOT penalize a mismatch on these dynamic IDs/classes; instead, focus on the static/semantic parts of the ID or class.
 3. BEHAVIORAL match: Does the interactionType (click/fill/check/select) match?
 4. SHADOW HOST CHAIN match (VERY IMPORTANT): The candidate's 'shadowHostChain' lists ALL custom element ancestors from outermost to innermost. The original's 'shadowDomHostTags' lists the custom element tags extracted from its XPath. Compare these two lists: the correct candidate's shadowHostChain should have the highest overlap with the original's shadowDomHostTags. A candidate nested inside the same web component hierarchy as the original is far more likely to be correct.
 5. CONTEXTUAL match: Do parentTag, ancestorTagNames, landmarkRole, or headingContext align?
@@ -158,21 +163,74 @@ Select the single best matching candidate. Output ONLY the JSON object.`;
       userPrompt
     );
 
-    const response = await this.openai.chat.completions.create({
-      model: this.modelName,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      response_format: { type: 'json_object' },
-    });
+    // ── Retry loop with exponential back-off ──────────────────────────────
+    // OpenRouter free-tier can return 429, 500, or simply timeout when
+    // traffic spikes.  We retry up to MAX_ATTEMPTS times before giving up.
+    const MAX_ATTEMPTS = 3;
+    const BASE_DELAY_MS = 3000;
+    const PER_CALL_TIMEOUT_MS = 60_000; // 60 s hard cap per attempt
 
-    const content = response?.choices?.[0]?.message?.content || '{}';
-    const parsed = JSON.parse(content);
+    let lastError: any;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        console.log(`[OpenRouterService] AI request attempt ${attempt}/${MAX_ATTEMPTS} for "${resolvedName || 'unknown'}"...`);
 
-    // ── Write AI response to debug file
-    logger.logAIResponse(resolvedName || 'unknown', parsed);
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => controller.abort(), PER_CALL_TIMEOUT_MS);
 
-    return parsed;
+        let response: any;
+        try {
+          response = await (this.openai.chat.completions.create as any)({
+            model: this.modelName,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            response_format: { type: 'json_object' },
+          }, { signal: controller.signal });
+        } finally {
+          clearTimeout(timeoutHandle);
+        }
+
+        const content = response?.choices?.[0]?.message?.content || '{}';
+        const parsed = JSON.parse(content);
+
+        console.log(`[OpenRouterService] Response successfully served by model: "${response.model}"`);
+        if (parsed && typeof parsed === 'object') {
+          if (typeof parsed.reason === 'string') {
+            parsed.reason = `${parsed.reason} (Model: ${response.model})`;
+          } else {
+            parsed.reason = `(Model: ${response.model})`;
+          }
+        }
+
+        // ── Write AI response to debug file
+        logger.logAIResponse(resolvedName || 'unknown', parsed);
+
+        return parsed;
+
+      } catch (err: any) {
+        lastError = err;
+        const isAbort = err?.name === 'AbortError' || err?.message?.includes('aborted');
+        const status  = err?.status ?? err?.response?.status ?? 0;
+        const isRetryable = isAbort || status === 429 || status === 500 || status === 503 || status === 0;
+
+        console.warn(
+          `[OpenRouterService] Attempt ${attempt}/${MAX_ATTEMPTS} failed for "${resolvedName || 'unknown'}": ` +
+          `${isAbort ? 'TIMEOUT (aborted)' : `HTTP ${status || 'N/A'} — ${err?.message?.split('\n')[0] || err}`}`
+        );
+
+        if (!isRetryable || attempt === MAX_ATTEMPTS) break;
+
+        const delayMs = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        console.log(`[OpenRouterService] Waiting ${delayMs}ms before retry...`);
+        await new Promise(res => setTimeout(res, delayMs));
+      }
+    }
+
+    throw new Error(
+      `[OpenRouterService] All ${MAX_ATTEMPTS} AI attempts failed for "${resolvedName || 'unknown'}". ` +
+      `Last error: ${lastError?.message || lastError}`
+    );
   }
 }

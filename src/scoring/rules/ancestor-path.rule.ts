@@ -46,7 +46,7 @@ export class AncestorPathRule implements ScoringRule {
     // ── 3. Table column header match (0.2) ────────────────────────────
     if (candidate.tableContext && candidate.tableContext.columnHeader) {
       // Check if the original's ObjectName or nearby text mentions the column header
-      const origName = (original.ObjectName || '').toLowerCase().trim();
+      const origName = (original.LocText || original.LocTitle || original.OwnInnerText || '').toLowerCase().trim();
       const colHeader = candidate.tableContext.columnHeader.toLowerCase().trim();
       const origNearby = (original.NearByText || []).map(s => s.toLowerCase().trim());
 

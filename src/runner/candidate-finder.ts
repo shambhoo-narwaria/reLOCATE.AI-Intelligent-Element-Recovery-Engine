@@ -214,6 +214,7 @@ export class CandidateFinder {
 
         // ── Functional ───────────────────────────────────────────────────
         const functional: CandidateFunctional = {
+          className: (typeof el.className === 'string') ? el.className.trim() : '',
           normalizedText: accessibleName.toLowerCase(),
           tagName,
           role: attr(el, 'role') || '',
@@ -265,7 +266,7 @@ export class CandidateFinder {
         let cur: Element | null = el.parentElement;
         let hostIdx = hostChain.length - 1;
         while (cur || hostIdx >= 0) {
-          if (ancestors.length >= 15) {
+          if (ancestors.length >= 20) {
             break;
           }
           if (cur) {
@@ -512,6 +513,8 @@ export class CandidateFinder {
         if (cand.functional.id || cand.functional.dataTestId || cand.functional.dataQa) return true;
         if (cand.semantic.accessibleName || cand.semantic.text) return true;
         if (cand.behavior.focusable) return true;
+        if (cand.structure.containsSvg || cand.structure.containsImage) return true;
+        if (extraTag && t === extraTag) return true;
         return false;
       });
     }, targetTagName);

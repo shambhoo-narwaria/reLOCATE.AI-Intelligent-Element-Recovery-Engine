@@ -104,23 +104,25 @@ export class GeminiService implements AIProvider {
           .filter(tag => tag.includes('-'))  // only custom elements
       );
 
+    const resolvedName = (original.LocText || original.LocTitle || original.OwnInnerText || '').trim();
+
     const cleanedOriginal = cleanObject({
-      objectName:          original.ObjectName        || '',
-      tagName:             original.LocTagName         || '',
+      objectName:          resolvedName,
+      tagName:             original.OrigTagName        || '',
       id:                  original.LocId              || '',
       name:                original.LocName            || '',
-      className:           original.LocClassName        || '',
+      className:           original.LocClassName       || '',
       role:                original.role               || '',
       inputType:           original.LocType || original.inputType || '',
       interactionType:     original.interactionType    || original.Action || '',
-      accessibleName:      original.ObjectName || original.accessibleName || '',
-      locValue:            original.LocValue            || '',
+      accessibleName:      resolvedName,
+      locValue:            original.LocValue           || '',
       labelText:           original.labelText          || '',
       parentTag:           original.parentTag          || '',
       parentId:            original.parentId           || '',
       indexInParent:       original.indexInParent,
       domDepth:            original.domDepth,
-      nearbyText:          original.NearByText         || [],
+      nearbyText:          (original.NearByText || []).slice(0, 4),
       cssSelector:         original.LocCssSelector     || '',
       fullXpath:           original.FullLocXpath       || '',
       shadowDomFullXpathArray: original.ShadowDomFullXpathArray || [],
@@ -134,6 +136,7 @@ export class GeminiService implements AIProvider {
       const rawCandidate: Record<string, any> = {
         candidateId:     c.candidateId,
         tagName:         c.functional.tagName,
+        className:       c.functional.className || undefined,
         id:              c.functional.id,
         name:            c.functional.name,
         role:            c.functional.role || c.semantic.role,
@@ -166,10 +169,13 @@ Evaluation criteria (in priority order):
    *Dynamic Text*: Dropdown/select triggers may show the currently selected value (e.g. 'Active') instead of the default placeholder/label (e.g. 'Status'). Prioritize matching the host component over exact text match.
 2. FUNCTIONAL match: Does the tagName, role, id, name, or inputType match?
    *CRITICAL — Shadow-internal IDs are NOT unique*: IDs like 'shadow-container', 'inner-wrapper', 'content-slot' repeat across every instance of a web component. When multiple candidates share the same id, disambiguate by accessibleName match against the original's ObjectName. Do NOT select based on id alone.
+   *CRITICAL — Dynamic IDs & Attributes*: IDs or framework-generated attributes/classes containing random hashes, suffixes, or dynamic numbers are dynamic and change across page reloads/sessions. Do NOT penalize a mismatch on these dynamic IDs/classes; instead, focus on the static/semantic parts of the ID or class.
 3. BEHAVIORAL match: Does the interactionType (click/fill/check/select) match?
 4. SHADOW HOST CHAIN match (VERY IMPORTANT): The candidate's 'shadowHostChain' lists ALL custom element ancestors from outermost to innermost. The original's 'shadowDomHostTags' lists the custom element tags extracted from its XPath. Compare these two lists: the correct candidate's shadowHostChain should have the highest overlap with the original's shadowDomHostTags. A candidate nested inside the same web component hierarchy as the original is far more likely to be correct.
 5. CONTEXTUAL match: Do parentTag, ancestorTagNames, landmarkRole, or headingContext align?
-   *Table Context*: If the candidate has 'tableContext', verify the columnHeader matches the original's expected column context. The correct table cell will have the matching columnHeader.`;
+   *Table Context*: If the candidate has 'tableContext', verify the columnHeader matches the original's expected column context. The correct table cell will have the matching columnHeader.
+   *Hierarchy Alignment*: Compare the sequence of tags in the candidate's 'ancestorTagNames' (ordered from innermost parent to HTML/BODY) with the path of tags in the original's 'fullXpath' or 'cssSelector'. A candidate whose structural tag hierarchy matches the original's tag sequence (e.g., HTML -> BODY -> DIV -> UL -> LI -> A) is extremely likely to be correct, even if container IDs or class names differ.
+6. UNLABELED / ICON elements: If the original element is an icon or unlabeled (e.g. OrigTagName is SPAN, SVG, I, or class contains 'icon') and has no accessibleName/objectName/LocText, do not force a semantic match on ObjectName (as the ObjectName might be a nearby text fallback). Instead, prioritize matching on tagName, classNames/className, and DOM tag path hierarchy.`;
 
     const userPrompt = `Original Element Metadata:
 ${JSON.stringify(cleanedOriginal, null, 2)}
@@ -180,7 +186,7 @@ ${JSON.stringify(cleanedCandidates, null, 2)}
 Select the single best matching candidate. Output the result matching the requested JSON schema.`;
 
     // ── Log request via debug logger ──────────────────────────────────
-    logger.logAIRequest(original.ObjectName || 'unknown', cleanedOriginal, cleanedCandidates, systemPrompt, userPrompt);
+    logger.logAIRequest(resolvedName || 'unknown', cleanedOriginal, cleanedCandidates, systemPrompt, userPrompt);
 
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
@@ -215,7 +221,7 @@ Select the single best matching candidate. Output the result matching the reques
       const parsed = JSON.parse(textResponse);
 
       // ── Log response via debug logger ──────────────────────────────────────
-      logger.logAIResponse(original.ObjectName || 'unknown', parsed);
+      logger.logAIResponse(resolvedName || 'unknown', parsed);
 
       return parsed;
     } catch (error) {

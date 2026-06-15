@@ -56,6 +56,8 @@ export interface CandidateFunctional {
   cssSelector: string;
   /** XPath expression */
   xpath: string;
+  /** Element class name */
+  className: string;
 }
 
 export interface CandidateBehavior {

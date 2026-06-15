@@ -17,6 +17,8 @@
 
 ## System Architecture
 
+For a simple-to-understand walkthrough of the decision engine flows, visual diagrams, and scoring pipelines, check out the [Architecture & Decision Flow Guide](file:///c:/Users/shaam/Desktop/AIElementIdentification/docs/project-architecture.md).
+
 ```mermaid
 graph TD
     A[Playwright Runner] -->|1. Try Selector| B(DOM Element Found?)
@@ -43,6 +45,8 @@ graph TD
     *   `NearbyTextRule` (Weight 5 — sibling & nearby text match)
     *   `ParentContextRule` (Weight 10 — direct parent tag & ID match)
     *   `DomStructureRule` (Weight 5 — DOM tree depth & index matching)
+    *   `ClassNameRule` (Weight 10 — CSS class names matching)
+    *   `VisualSimilarityRule` (Weight 20 — visual similarity crop matching)
 4.  **AI Providers (`src/ai/`)**: Formats payloads and requests LLMs using JSON schemas to guarantee return types (`candidateId`, `confidence`, `reason`).
 
 ---

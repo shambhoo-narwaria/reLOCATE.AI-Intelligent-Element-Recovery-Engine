@@ -17,7 +17,8 @@ RelocateAI/
 ├── logs/                         # Dynamic timestamped execution logs
 ├── docs/
 │   ├── working-details.md        # Technical architecture documentation (this file)
-│   └── ai-payload-details.md     # In-depth AI payload and JSON schema details
+│   ├── ai-payload-details.md     # In-depth AI payload and JSON schema details
+│   └── project-architecture.md   # Visual decision flowchart and architecture guide
 └── src/
     ├── ai/
     │   ├── openai.service.ts     # OpenAI GPT-4o integration
@@ -80,16 +81,19 @@ This preserves custom buttons and web component trigger slots inside the candida
 ## 2. Dynamic Rule-Based Scoring Engine
 Location: [`src/scoring/scoring.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/scoring/scoring.engine.ts)
 
-Before deciding to invoke the LLM, the candidates are scored using six dedicated metric rules.
+Before deciding to invoke the LLM, the candidates are scored using nine dedicated metric rules.
 
 | Rule Component | Weight | Matching Criteria / Logic |
 | :--- | :---: | :--- |
 | **`ObjectNameRule`** | **30** | Computes the maximum similarity (Levenshtein distance) between the original `ObjectName` and the candidate's `accessibleName`, `closestLabel`, or `normalizedText`. |
-| **`LabelTextRule`** | **20** | Matches associated forms or field labels. |
+| **`LabelTextRule`** | **15** | Matches associated forms or field labels. |
 | **`RoleRule`** | **15** | Matches `tagName` and ARIA `role`. **Shadow Host tag matching bonus**: Grants `80%` of this weight if the candidate's tag matches one of the shadow hosts in the original element's `ShadowDomHostArray`. |
-| **`NearbyTextRule`** | **15** | Compares sibling texts and layout neighbors to confirm visual neighborhood. |
-| **`ParentContextRule`** | **10** | Scores based on parent tag name and parent element ID alignment. |
-| **`DomStructureRule`** | **5** | Scores based on DOM nesting depth and relative sibling index. |
+| **`AncestorPathRule`**| **15** | Calculates LCS (Longest Common Subsequence) path matching on shadow host chains and DOM tag sequences. |
+| **`NearbyTextRule`** | **5**  | Compares sibling texts and layout neighbors to confirm visual neighborhood. |
+| **`ParentContextRule`**| **10** | Scores based on parent tag name and parent element ID alignment. |
+| **`DomStructureRule`** | **5**  | Scores based on DOM nesting depth and relative sibling index. |
+| **`ClassNameRule`** | **10** | Scores CSS class token similarity using Jaccard index (filtering out Angular-specific helper attributes). |
+| **`VisualSimilarityRule`**| **20** | Compares physical element crops against recorded visual templates using Weighted Jaccard edge-similarity. |
 
 ---
 
@@ -135,6 +139,6 @@ Location: [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElement
 
 1. **Page Stabilization**: If an element is missing, the runner pauses to wait for the document load state (`document.readyState === 'complete'`) and network-idle states to complete before scraping.
 2. **Domain Protection**: Checks the protocol, hostname, and port of the current page. If the domain changed entirely (a different site), it halts healing to prevent false-positive clicks.
-3. **Attribute Insertion**: When a candidate is matched, its DOM node is stamped: `el.setAttribute('data-ai-healed-id', index)`. The new locator becomes `[data-ai-healed-id="X"]`.
+3. **Attribute Insertion**: When a candidate is scanned, its DOM node is stamped with a unique monotonic ID: `el.setAttribute('data-ai-healed-id', String(uniqueId))`. The `uniqueId` is derived from a persistent monotonic counter on the browser's `window` object (`window.__ai_healing_counter__`). This ensures that every scanned candidate receives a globally unique locator ID across all steps of the test case, even in Single Page Applications (SPAs) where DOM nodes from previous steps remain in memory and could otherwise cause selector collisions. The new locator becomes `[data-ai-healed-id="X"]`.
 4. **Visual Highlights**: Bounding box coordinates are queried, and a red border overlay is drawn around the target element for `600ms` so testers can visually verify what the runner is about to click.
 5. **Action Guard**: If the target element is disabled, the runner warns and skips to prevent execution timeouts, ensuring clean execution of the test suite.

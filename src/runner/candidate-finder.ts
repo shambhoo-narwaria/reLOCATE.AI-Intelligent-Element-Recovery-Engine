@@ -14,6 +14,11 @@ import {
 export class CandidateFinder {
   async findCandidates(page: Page, targetTagName?: string): Promise<Candidate[]> {
     return await page.evaluate((tag: string | undefined) => {
+      // Initialize monotonic healing counter on window
+      if (typeof (window as any).__ai_healing_counter__ === 'undefined') {
+        (window as any).__ai_healing_counter__ = 0;
+      }
+      const startCounter = (window as any).__ai_healing_counter__;
 
       // ── Helpers ──────────────────────────────────────────────────────────
       const attr = (el: Element, name: string) => el.getAttribute(name) || '';
@@ -191,11 +196,13 @@ export class CandidateFinder {
       };
 
       const collected = collectAll(document, [], 0);
+      // Update window monotonic counter to cover all elements in this scrape session
+      (window as any).__ai_healing_counter__ = startCounter + collected.length;
 
       // ── Build candidates ──────────────────────────────────────────────────
       return collected.map(({ el, hostChain, absoluteDepth }: CollectedEl, index: number) => {
-        // Inject a unique temporary ID into the DOM element for locator healing
-        el.setAttribute('data-ai-healed-id', String(index));
+        const uniqueId = startCounter + index;
+        el.setAttribute('data-ai-healed-id', String(uniqueId));
         const tagName: string = el.tagName || '';
         const tagLower = tagName.toLowerCase();
         const rect: DOMRect = el.getBoundingClientRect();
@@ -483,7 +490,7 @@ export class CandidateFinder {
         };
 
         return {
-          candidateId: index,
+          candidateId: uniqueId,
           semantic,
           functional,
           behavior,

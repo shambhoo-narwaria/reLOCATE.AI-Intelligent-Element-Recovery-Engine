@@ -50,7 +50,7 @@ The candidate elements are scraped from the current live DOM. Rather than sendin
 
 | Field Name | Type | Description / Usecase |
 | :--- | :---: | :--- |
-| `candidateId` | `number` | **Critical unique identifier** (0-based index) injected by the scraper. The AI returns this ID to select the element. |
+| `candidateId` | `number` | **Critical unique identifier** (monotonic session-wide index) injected by the scraper. The AI returns this ID to select the element. |
 | `tagName` | `string` | The candidate's HTML tag name. |
 | `id` | `string` | The candidate's ID attribute. |
 | `name` | `string` | The candidate's name attribute. |

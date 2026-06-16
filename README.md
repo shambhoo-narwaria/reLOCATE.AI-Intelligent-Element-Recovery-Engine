@@ -10,7 +10,10 @@
 *   **Plug-and-Play Multi-LLM Support**: Built-in, zero-dependency integration for **OpenAI (GPT-4o)**, **Google Gemini (Gemini 2.5 Flash)**, and EC2-hosted **vLLM (Qwen 2.5)**. Toggle between them instantly using `.env` options.
 *   **Shadow-DOM & Slot Piercing**: Extracts candidates recursively across shadow boundaries and matches container host tags (e.g., matching target tags to `ShadowDomHostArray` tags like `zui-select-v3-17`).
 *   **Dynamic Dropdown / Value Healing**: Special prompt instructions to properly align selectors where the runtime label reflects a changed dynamic selection (e.g., matching `"Today's patients"` to `"All patients"`).
+*   **Invisible & Lazy-Loaded Element Bypass**: Automatically preserves target tags (like `IMG`) even if they evaluate to zero-width or `opacity: 0` during DOM scraping, allowing delayed resources to be properly healed.
+*   **Animation & Layout Shift Retry Engine**: Catches Playwright `"Element is not visible"` or `"detached"` errors immediately during action execution, wait for layout stabilization, and seamlessly restarts the healing process.
 *   **`display: contents` Element Support**: Retains layout-transparent elements (custom buttons, wrappers) in the candidate pool so internal interactive text is never lost.
+*   **Advanced Visual Similarity Penalties**: Heavily penalizes candidates that are massively larger than the original target (e.g., 5x or 10x area difference) to prevent layout containers from falsely matching button edge maps.
 *   **Live Visual Feedback**: Draws temporary highlight bounding boxes around target elements on the screen before performing Playwright actions.
 
 ---

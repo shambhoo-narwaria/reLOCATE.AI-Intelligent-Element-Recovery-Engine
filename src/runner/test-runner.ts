@@ -81,66 +81,84 @@ export class TestRunner {
           await page.goto(step.InputData, { waitUntil: 'load', timeout: 60000 });
           console.log(`[TestRunner] Navigation complete.`);
         } else if (step.Action === 'Click' || step.Action === 'Enter') {
-          const result = await this.findAndHeal(page, step, i);
+          let stepSuccess = false;
+          let lastActionErr: any = null;
 
-          // confidence=0 means the step was auto-skipped (page navigated away)
-          if (result.confidence === 0) {
-            console.log(`[TestRunner] Step "${step.ObjectName}" skipped — page has navigated away from the recorded URL.`);
-            continue;
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            const result = await this.findAndHeal(page, step, i);
+
+            // confidence=0 means the step was auto-skipped (page navigated away)
+            if (result.confidence === 0) {
+              console.log(`[TestRunner] Step "${step.ObjectName}" skipped — page has navigated away from the recorded URL.`);
+              stepSuccess = true;
+              break;
+            }
+
+            const element = result.locator;
+
+            try {
+              // ── Visual bounding-box highlight ─────────────────────────────
+              await this.highlightElement(page, element);
+
+              const candIdStr = result.candidateId !== undefined ? ` (Candidate ID: ${result.candidateId})` : '';
+              
+              if (step.Action === 'Click') {
+                console.log(`[TestRunner] Clicking element: "${result.newLocator}"${candIdStr}`);
+                try {
+                  await element.click({ timeout: 8000 });
+                } catch (firstClickErr: any) {
+                  const firstMsg = firstClickErr?.message || String(firstClickErr);
+                  const isInterceptedOrTimeout = 
+                    firstMsg.includes('intercepts pointer events') || 
+                    firstMsg.includes('pointer-events') || 
+                    firstMsg.includes('Timeout') || 
+                    firstClickErr?.name === 'TimeoutError';
+
+                  if (isInterceptedOrTimeout) {
+                    console.warn(`[TestRunner] ⚠  Click failed or timed out on "${result.newLocator}"${candIdStr} (${firstClickErr?.name || 'Error'}). Retrying with force:true...`);
+                    await element.click({ force: true, timeout: 8000 });
+                  } else {
+                    throw firstClickErr;
+                  }
+                }
+              } else if (step.Action === 'Enter') {
+                console.log(`[TestRunner] Filling input element "${result.newLocator}"${candIdStr} with text: "${step.InputData}"`);
+                await element.fill(step.InputData);
+              }
+
+              if (result.didHeal) {
+                logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, result.reason || 'Healed', result.candidateId);
+                this.healingEngine.recordOutcome(result.oldLocator, result.newLocator, true, result.triggeredAI, result.confidence);
+                console.log(`[TestRunner] Healing recorded.`);
+              }
+
+              stepSuccess = true;
+              break; // Success! Exit the retry loop.
+
+            } catch (actionErr: any) {
+              lastActionErr = actionErr;
+              const msg: string = actionErr?.message || String(actionErr);
+
+              // If the element became invisible or detached between candidate finding and the actual click,
+              // we retry the entire findAndHeal process once because the page layout likely just settled.
+              if (attempt === 1 && (msg.includes('not visible') || msg.includes('detached') || msg.includes('stale'))) {
+                console.warn(`[TestRunner] ⚠ Element became invisible or detached during action (e.g. cookie banner closed). Retrying step ${i + 1} from scratch...`);
+                await page.waitForTimeout(1500); // Wait for animations to finish
+                continue;
+              }
+
+              // Otherwise, or if it fails twice, throw the error
+              console.error(`[TestRunner] Action execution failed on element: "${result.newLocator}"`, actionErr);
+              if (result.didHeal) {
+                logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, `Failed: ${msg}`, result.candidateId);
+                this.healingEngine.recordOutcome(result.oldLocator, result.newLocator, false, result.triggeredAI, result.confidence);
+              }
+              throw actionErr;
+            }
           }
 
-          const element = result.locator;
-
-          try {
-            // ── Visual bounding-box highlight ─────────────────────────────
-            // Draw a red border around the target element for 600ms so the
-            // user can visually confirm which element is about to be acted on.
-            // The overlay is always removed before the real action executes.
-            await this.highlightElement(page, element);
-
-            // ── Disabled element guard removed ──
-            // We now rely on Playwright's native auto-wait to wait for the element to become enabled.
-            const candIdStr = result.candidateId !== undefined ? ` (Candidate ID: ${result.candidateId})` : '';
-            
-            if (step.Action === 'Click') {
-              console.log(`[TestRunner] Clicking element: "${result.newLocator}"${candIdStr}`);
-              try {
-                await element.click({ timeout: 8000 });
-              } catch (firstClickErr: any) {
-                const firstMsg = firstClickErr?.message || String(firstClickErr);
-                const isInterceptedOrTimeout = 
-                  firstMsg.includes('intercepts pointer events') || 
-                  firstMsg.includes('pointer-events') || 
-                  firstMsg.includes('Timeout') || 
-                  firstClickErr?.name === 'TimeoutError';
-
-                if (isInterceptedOrTimeout) {
-                  // Another overlay element is on top or layout is unstable — dispatch the click directly
-                  // bypassing Playwright's pointer-event interception/stability checks.
-                  console.warn(`[TestRunner] ⚠  Click failed or timed out on "${result.newLocator}"${candIdStr} (${firstClickErr?.name || 'Error'}). Retrying with force:true...`);
-                  await element.click({ force: true, timeout: 8000 });
-                } else {
-                  throw firstClickErr;
-                }
-              }
-            } else if (step.Action === 'Enter') {
-              console.log(`[TestRunner] Filling input element "${result.newLocator}"${candIdStr} with text: "${step.InputData}"`);
-              await element.fill(step.InputData);
-            }
-
-            if (result.didHeal) {
-              logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, result.reason || 'Healed', result.candidateId);
-              this.healingEngine.recordOutcome(result.oldLocator, result.newLocator, true, result.triggeredAI, result.confidence);
-              console.log(`[TestRunner] Healing recorded.`);
-            }
-          } catch (actionErr: any) {
-            const msg: string = actionErr?.message || String(actionErr);
-            console.error(`[TestRunner] Action execution failed on element: "${result.newLocator}"`, actionErr);
-            if (result.didHeal) {
-              logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, `Failed: ${msg}`, result.candidateId);
-              this.healingEngine.recordOutcome(result.oldLocator, result.newLocator, false, result.triggeredAI, result.confidence);
-            }
-            throw actionErr;
+          if (!stepSuccess && lastActionErr) {
+            throw lastActionErr;
           }
         } else {
           console.log(`[TestRunner] Action "${step.Action}" not recognized. Skipping step.`);
@@ -630,10 +648,12 @@ export class TestRunner {
             }
 
             // Scroll candidate into view (short timeout to avoid hanging)
-            await locator.scrollIntoViewIfNeeded({ timeout: 500 }).catch(err => {
-              console.warn(`[TestRunner] Candidate ${c.candidateId} is not scrollable.`);
-            });
-            await page.waitForTimeout(100);
+            try {
+              await locator.scrollIntoViewIfNeeded({ timeout: 1000 });
+              await page.waitForTimeout(100);
+            } catch (err: any) {
+              // Silently ignore scroll failures and attempt visual comparison anyway
+            }
 
             // Take current viewport screenshot
             const currentScreenshotB64 = await page.screenshot({ type: 'jpeg', quality: 80 }).then(buf => buf.toString('base64'));
@@ -828,7 +848,9 @@ export class TestRunner {
                 // If candidate area is 5 times or more than the original area, penalize similarity
                 const origArea = origW * origH;
                 const candArea = candRect.width * candRect.height;
-                if (candArea >= origArea * 5) {
+                if (candArea >= origArea * 10) {
+                  similarity = -1.0;
+                } else if (candArea >= origArea * 5) {
                   similarity = -0.5;
                 }
 

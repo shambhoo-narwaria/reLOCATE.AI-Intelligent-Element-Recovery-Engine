@@ -76,6 +76,9 @@ const visible = (rect.width > 0 && rect.height > 0) || isDisplayContents;
 ```
 This preserves custom buttons and web component trigger slots inside the candidate pool.
 
+### D. Invisible & Lazy-Loaded Element Bypass
+Some elements (like `IMG` tags) may initially have `opacity: 0` or `width=0` due to lazy loading or CSS transitions, causing them to be falsely excluded by the standard bounding-box checks. RelocateAI deliberately bypasses the standard visibility check for elements whose `tagName` perfectly matches the original recorded tag, ensuring they are sent to the Visual Engine.
+
 ---
 
 ## 2. Dynamic Rule-Based Scoring Engine
@@ -93,7 +96,7 @@ Before deciding to invoke the LLM, the candidates are scored using nine dedicate
 | **`ParentContextRule`**| **10** | Scores based on parent tag name and parent element ID alignment. |
 | **`DomStructureRule`** | **5**  | Scores based on DOM nesting depth and relative sibling index. |
 | **`ClassNameRule`** | **10** | Scores CSS class token similarity using Jaccard index (filtering out Angular-specific helper attributes). |
-| **`VisualSimilarityRule`**| **20** | Compares physical element crops against recorded visual templates using Weighted Jaccard edge-similarity. |
+| **`VisualSimilarityRule`**| **20** | Compares physical element crops against recorded visual templates using Weighted Jaccard edge-similarity. **Strict Layout Penalties**: Applies heavy point reductions (-0.5x for 5x area difference, -1.0x for 10x area difference) to prevent massive layout containers from masquerading as smaller interactive elements. |
 
 ---
 
@@ -142,3 +145,4 @@ Location: [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElement
 3. **Attribute Insertion**: When a candidate is scanned, its DOM node is stamped with a unique monotonic ID: `el.setAttribute('data-ai-healed-id', String(uniqueId))`. The `uniqueId` is derived from a persistent monotonic counter on the browser's `window` object (`window.__ai_healing_counter__`). This ensures that every scanned candidate receives a globally unique locator ID across all steps of the test case, even in Single Page Applications (SPAs) where DOM nodes from previous steps remain in memory and could otherwise cause selector collisions. The new locator becomes `[data-ai-healed-id="X"]`.
 4. **Visual Highlights**: Bounding box coordinates are queried, and a red border overlay is drawn around the target element for `600ms` so testers can visually verify what the runner is about to click.
 5. **Action Guard**: If the target element is disabled, the runner warns and skips to prevent execution timeouts, ensuring clean execution of the test suite.
+6. **Action Retry Loop**: If an action fails because the element became detached or invisible immediately before the click (e.g., due to a layout shift or a cookie banner animating out), the runner intercepts the Playwright error, waits 1.5 seconds for layout stabilization, and completely restarts the candidate extraction and healing process from scratch.

@@ -616,12 +616,16 @@ export class CandidateFinder {
         } as Candidate;
       }).filter((cand: Candidate) => {
         const t = cand.functional.tagName.toLowerCase();
+        const normalizedExtraTag = extraTag ? extraTag.toLowerCase() : '';
+        const isTargetTag = normalizedExtraTag && t === normalizedExtraTag;
 
         // ── Invisible elements: never valid action targets ─────────────────
         // getElementRectWithFallback ensures that if an element's shadow children 
         // or light children are visible, it will have width/height > 0.
         // If it's still 0, it's truly invisible (e.g., mobile clone on desktop view).
-        if (!cand.visual.visible) return false;
+        // EXCEPTION: Always keep the element if it matches the exact OrigTagName (extraTag)
+        // because it might be a lazy-loaded image or temporarily hidden by opacity.
+        if (!cand.visual.visible && !isTargetTag) return false;
 
         // ── Hard tag exclusions ────────────────────────────────────────────
         const ALWAYS_EXCLUDE = ['slot', 'style', 'template', 'link', 'script', 'meta'];
@@ -631,7 +635,7 @@ export class CandidateFinder {
         const isNativeFormControl = ['input', 'button', 'select', 'textarea', 'a', 'img'].includes(t);
         if (isNativeFormControl) return true;
         if (t.includes('-')) return true;           // custom elements (ZUI-*, etc.)
-        if (extraTag && t === extraTag.toLowerCase()) return true;
+        if (isTargetTag) return true;
 
         if (cand.functional.role) return true;
         if (cand.functional.id || cand.functional.dataTestId || cand.functional.dataQa) return true;

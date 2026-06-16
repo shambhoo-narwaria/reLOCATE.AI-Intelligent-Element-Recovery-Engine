@@ -76,7 +76,10 @@ flowchart TD
     Validate2 -->|No| Fail[Throw Healing Validation Error]:::action
     
     Highlight --> PlaywrightAction[Perform Playwright Click / Fill]:::action
-    PlaywrightAction --> Success[Record outcome: Healing Success]:::action
+    PlaywrightAction -->|Success| Success[Record outcome: Healing Success]:::action
+    PlaywrightAction -->|Fail: Not Visible/Detached| RetryDelay[Wait 1.5s for Layout Shift]:::action
+    RetryDelay --> Stabilize
+    PlaywrightAction -->|Fail: Other| HardFail[Crash Test Execution]:::action
 ```
 
 ---

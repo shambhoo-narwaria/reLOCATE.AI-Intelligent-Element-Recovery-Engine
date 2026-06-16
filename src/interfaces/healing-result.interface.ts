@@ -3,4 +3,5 @@ export interface HealingResult {
   confidence: number;
   reason: string;
   triggeredAI: boolean;
+  candidateId?: number;
 }

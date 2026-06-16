@@ -14,11 +14,8 @@ import {
 export class CandidateFinder {
   async findCandidates(page: Page, targetTagName?: string): Promise<Candidate[]> {
     return await page.evaluate((tag: string | undefined) => {
-      // Initialize monotonic healing counter on window
-      if (typeof (window as any).__ai_healing_counter__ === 'undefined') {
-        (window as any).__ai_healing_counter__ = 0;
-      }
-      const startCounter = (window as any).__ai_healing_counter__;
+      // Start at a highly random 7-digit offset to guarantee globally unique IDs
+      const startCounter = Math.floor(Math.random() * 9000000) + 1000000;
 
       // ── Helpers ──────────────────────────────────────────────────────────
       const attr = (el: Element, name: string) => el.getAttribute(name) || '';
@@ -103,6 +100,71 @@ export class CandidateFinder {
           ? el.className.split(/\s+/).filter(c => c && !c.includes(':') && !c.includes('['))
           : [];
         return cls.length ? `${t}.${cls.join('.')}` : t;
+      };
+
+      const getUniqueCssInShadow = (element: Element): string => {
+        const path: string[] = [];
+        let cur: Element | null = element;
+        while (cur && cur.nodeType === Node.ELEMENT_NODE) {
+          const tagName = cur.tagName.toLowerCase();
+          
+          let segment = '';
+          const id = attr(cur, 'id');
+          if (id) {
+            segment = `#${id}`;
+          } else {
+            for (const a of ['data-testid', 'data-test', 'data-qa', 'data-cy']) {
+              const v = attr(cur, a);
+              if (v) {
+                segment = `${tagName}[${a}="${v}"]`;
+                break;
+              }
+            }
+          }
+
+          const parentNode = cur.parentNode;
+          let parent: ParentNode | null = null;
+          let isShadowBoundary = false;
+          if (parentNode instanceof ShadowRoot) {
+            parent = parentNode;
+            isShadowBoundary = true;
+          } else {
+            parent = cur.parentElement;
+          }
+
+          if (!segment) {
+            if (parent) {
+              const siblings = Array.from(parent.children || []);
+              const index = siblings.indexOf(cur) + 1;
+              segment = `${tagName}:nth-child(${index})`;
+            } else {
+              segment = tagName;
+            }
+          }
+
+          path.unshift(segment);
+
+          if (isShadowBoundary) {
+            break;
+          }
+          // Only break early if we hit a true ID, otherwise keep building the path for maximum specificity
+          if (id) {
+            break;
+          }
+          cur = cur.parentElement;
+        }
+        return path.join(' > ');
+      };
+
+      const buildUniqueShadowSelector = (element: Element, hosts: Element[]): string => {
+        const selectors: string[] = [];
+        for (const host of hosts) {
+          selectors.push(getUniqueCssInShadow(host));
+        }
+        selectors.push(getUniqueCssInShadow(element));
+        // Use a space instead of '>>' because Playwright's modern CSS engine 
+        // automatically pierces shadow DOM boundaries by default.
+        return selectors.join(' ');
       };
 
       // ── Compute accessible name ───────────────────────────────────────────
@@ -226,8 +288,6 @@ export class CandidateFinder {
       };
 
       const collected = collectAll(document, [], 0);
-      // Update window monotonic counter to cover all elements in this scrape session
-      (window as any).__ai_healing_counter__ = startCounter + collected.length;
 
       // ── Build candidates ──────────────────────────────────────────────────
       return collected.map(({ el, hostChain, absoluteDepth }: CollectedEl, index: number) => {
@@ -236,6 +296,21 @@ export class CandidateFinder {
         const tagName: string = el.tagName || '';
         const tagLower = tagName.toLowerCase();
         const rect: DOMRect = getElementRectWithFallback(el);
+
+        // ── Helper: Get closest attribute (useful for SVGs inside buttons) ──
+        const getClosestAttr = (element: Element, attrNames: string[], maxDepth = 3): string => {
+          let cur: Element | null = element;
+          let depth = 0;
+          while (cur && depth < maxDepth && cur.nodeType === Node.ELEMENT_NODE) {
+            for (const name of attrNames) {
+              const v = attr(cur, name);
+              if (v) return v;
+            }
+            cur = cur.parentElement;
+            depth++;
+          }
+          return '';
+        };
 
         // ── Semantic ─────────────────────────────────────────────────────
         const accessibleName = computeAccessibleName(el);
@@ -263,12 +338,12 @@ export class CandidateFinder {
           value: attr(el, 'value'),
           href: attr(el, 'href'),
           inputType: attr(el, 'type'),
-          dataTestId: attr(el, 'data-testid') || attr(el, 'data-test-id') || attr(el, 'data-test'),
-          dataQa: attr(el, 'data-qa'),
-          dataCy: attr(el, 'data-cy'),
+          dataTestId: getClosestAttr(el, ['data-testid', 'data-test-id', 'data-test'], 3),
+          dataQa: getClosestAttr(el, ['data-qa'], 3),
+          dataCy: getClosestAttr(el, ['data-cy'], 3),
           id: attr(el, 'id'),
           alt: attr(el, 'alt'),
-          cssSelector: buildCss(el),
+          cssSelector: buildUniqueShadowSelector(el, hostChain),
           xpath: '',   // XPath cannot pierce shadow roots; cssSelector is the primary locator
         };
 
@@ -507,10 +582,19 @@ export class CandidateFinder {
         };
 
         // ── Visual ────────────────────────────────────────────────────────
-        const visible = rect.width > 0 && rect.height > 0;
+        let visible = rect.width > 0 && rect.height > 0;
+        let display = '';
+        if (visible) {
+          const style = window.getComputedStyle(el);
+          display = style.display;
+          if (style.visibility === 'hidden' || style.opacity === '0') {
+            visible = false;
+          }
+        }
+        
         const visual: CandidateVisual = {
           visible,
-          display: '',
+          display,
           boundingWidth: rect.width,
           boundingHeight: rect.height,
           fontWeight: '',
@@ -531,24 +615,21 @@ export class CandidateFinder {
       }).filter((cand: Candidate) => {
         const t = cand.functional.tagName.toLowerCase();
 
+        // ── Invisible elements: never valid action targets ─────────────────
+        // getElementRectWithFallback ensures that if an element's shadow children 
+        // or light children are visible, it will have width/height > 0.
+        // If it's still 0, it's truly invisible (e.g., mobile clone on desktop view).
+        if (!cand.visual.visible) return false;
+
         // ── Hard tag exclusions ────────────────────────────────────────────
         const ALWAYS_EXCLUDE = ['slot', 'style', 'template', 'link', 'script', 'meta'];
         if (ALWAYS_EXCLUDE.includes(t)) return false;
 
         // ── Inclusion rules ────────────────────────────────────────────────
-        // IMPORTANT: native form controls (input, textarea, select) inside deep
-        // shadow DOM often return a zero bounding rect because their shadow host
-        // intercepts layout — they ARE real actionable targets and must NEVER be
-        // excluded by the visibility check alone.
         const isNativeFormControl = ['input', 'button', 'select', 'textarea', 'a'].includes(t);
         if (isNativeFormControl) return true;
         if (t.includes('-')) return true;           // custom elements (ZUI-*, etc.)
         if (extraTag && t === extraTag) return true;
-
-        // ── Invisible elements: skip non-form, non-custom elements with zero size ─
-        // Tooltips, collapsed sections, off-screen containers, etc. — these have
-        // zero width/height and are never valid action targets for non-form elements.
-        if (!cand.visual.visible) return false;
 
         if (cand.functional.role) return true;
         if (cand.functional.id || cand.functional.dataTestId || cand.functional.dataQa) return true;

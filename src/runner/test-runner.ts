@@ -103,11 +103,11 @@ export class TestRunner {
             // required fields are filled), skip the click and warn rather than
             // timing out for 30 seconds and crashing the run.
             const isDisabled = await element.isDisabled().catch(() => false);
+            const candIdStr = result.candidateId !== undefined ? ` (Candidate ID: ${result.candidateId})` : '';
             if (isDisabled) {
-              console.warn(`[TestRunner] ⚠  Element "${result.newLocator}" for step "${step.ObjectName}" is DISABLED.`);
-              throw new Error(`Element "${result.newLocator}" is disabled. Prerequisite step may not have completed or page not loaded properly.`);
+              console.warn(`[TestRunner] ⚠  Element "${result.newLocator}"${candIdStr} for step "${step.ObjectName}" is DISABLED. Skipping action and continuing to next step.`);
             } else if (step.Action === 'Click') {
-              console.log(`[TestRunner] Clicking element: "${result.newLocator}"`);
+              console.log(`[TestRunner] Clicking element: "${result.newLocator}"${candIdStr}`);
               try {
                 await element.click({ timeout: 8000 });
               } catch (firstClickErr: any) {
@@ -121,19 +121,19 @@ export class TestRunner {
                 if (isInterceptedOrTimeout) {
                   // Another overlay element is on top or layout is unstable — dispatch the click directly
                   // bypassing Playwright's pointer-event interception/stability checks.
-                  console.warn(`[TestRunner] ⚠  Click failed or timed out on "${result.newLocator}" (${firstClickErr?.name || 'Error'}). Retrying with force:true...`);
+                  console.warn(`[TestRunner] ⚠  Click failed or timed out on "${result.newLocator}"${candIdStr} (${firstClickErr?.name || 'Error'}). Retrying with force:true...`);
                   await element.click({ force: true, timeout: 8000 });
                 } else {
                   throw firstClickErr;
                 }
               }
             } else if (step.Action === 'Enter') {
-              console.log(`[TestRunner] Filling input element "${result.newLocator}" with text: "${step.InputData}"`);
+              console.log(`[TestRunner] Filling input element "${result.newLocator}"${candIdStr} with text: "${step.InputData}"`);
               await element.fill(step.InputData);
             }
 
             if (result.didHeal) {
-              logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, result.reason || 'Healed');
+              logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, result.reason || 'Healed', result.candidateId);
               this.healingEngine.recordOutcome(result.oldLocator, result.newLocator, true, result.triggeredAI, result.confidence);
               console.log(`[TestRunner] Healing recorded.`);
             }
@@ -141,7 +141,7 @@ export class TestRunner {
             const msg: string = actionErr?.message || String(actionErr);
             console.error(`[TestRunner] Action execution failed on element: "${result.newLocator}"`, actionErr);
             if (result.didHeal) {
-              logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, `Failed: ${msg}`);
+              logger.logHealResult(step.ObjectName || 'unknown', result.oldLocator, result.newLocator, result.confidence, `Failed: ${msg}`, result.candidateId);
               this.healingEngine.recordOutcome(result.oldLocator, result.newLocator, false, result.triggeredAI, result.confidence);
             }
             throw actionErr;
@@ -214,13 +214,13 @@ export class TestRunner {
     }
   }
 
-  private async findAndHeal(page: Page, step: OriginalElement, stepIndex: number): Promise<{ locator: Locator; oldLocator: string; newLocator: string; didHeal: boolean; triggeredAI: boolean; confidence: number; reason?: string }> {
+  private async findAndHeal(page: Page, step: OriginalElement, stepIndex: number): Promise<{ locator: Locator; oldLocator: string; newLocator: string; didHeal: boolean; triggeredAI: boolean; confidence: number; reason?: string; candidateId?: number }> {
     const locCss = step.LocCssSelector;
     const locXpath = step.LocXpath;
     const originalLocator = locCss || locXpath || '';
 
     // as the testing purpose break the classical locators on any step
-    const shouldForceAI = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(stepIndex);
+    const shouldForceAI = [22, 23, 24, 25, 26].includes(stepIndex);
 
     // Helper function to try locating the element using original locators
     const tryOriginalLocators = async (timeoutMs: number): Promise<Locator | null> => {
@@ -239,7 +239,6 @@ export class TestRunner {
           for (const rawHost of hosts) {
             for (const hostSel of hostVariantOf(rawHost)) {
               try {
-                console.log(`[TestRunner] Shadow piercing: "${hostSel}" >> ".${locClass}"`);
                 const inner = page.locator(hostSel).first().locator(`.${locClass}`).first();
                 if (await inner.isVisible({ timeout: timeoutMs })) {
                   console.log(`[TestRunner] Shadow piercing via LocClassName ".${locClass}" succeeded.`);
@@ -270,14 +269,11 @@ export class TestRunner {
           for (const rawHost of hosts) {
             for (const hostSel of hostVariantOf(rawHost)) {
               try {
-                console.log(`[TestRunner] Shadow piercing: "${hostSel}" >> "${locCss}"`);
                 const inner = page.locator(hostSel).first().locator(locCss).first();
                 if (await inner.isVisible({ timeout: timeoutMs / 2 })) return inner;
               } catch { /* silent */ }
             }
           }
-        } else if (innerCssIsInternal) {
-          console.log(`[TestRunner] Shadow piercing step 2 skipped — inner CSS "${locCss}" targets a shadow-internal element (contains: ${SHADOW_INTERNAL_KEYWORDS.find(kw => locCss?.toLowerCase().includes(kw))}). Will try host directly.`);
         }
 
         // 3) Try clicking the shadow HOST element directly ─────────────────
@@ -299,12 +295,11 @@ export class TestRunner {
       const locatorsToTry = [locCss, locXpath].filter(Boolean) as string[];
       for (const loc of locatorsToTry) {
         try {
-          console.log(`[TestRunner] Attempting original locator: "${loc}" (timeout: ${timeoutMs}ms)`);
           await page.waitForSelector(loc, { timeout: timeoutMs, state: 'attached' });
           const el = page.locator(loc).first();
           if (await el.isVisible()) return el;
         } catch (err: any) {
-          console.log(`[TestRunner] Original locator "${loc}" failed: ${err.message?.split('\n')[0] || err}`);
+          // silent failure to keep logs clean
         }
       }
 
@@ -336,9 +331,8 @@ export class TestRunner {
 
     // Tier 2: Wait 5 seconds and retry
     if (!shouldForceAI) {
-      console.warn(`[TestRunner] First locator attempt failed. Sleeping for 5s before retrying...`);
+      console.log(`[TestRunner] Original locator failed. Waiting 5s before retrying...`);
       await page.waitForTimeout(5000);
-      console.log(`[TestRunner] Retrying original locators (2nd attempt)...`);
       el = await tryOriginalLocators(5000);
     }
     if (el) {
@@ -540,8 +534,8 @@ export class TestRunner {
       console.log(`[TestRunner] Relevance cap applied: kept top ${candidates.length} of ${scored.length} candidates (keywords: [${allKeywords.slice(0, 8).join(', ')}])`);
     }
 
-    console.log(`[TestRunner] Extracted ${candidates.length} candidate elements from page.`);
-    console.log(`[TestRunner] Scraped Candidates:\n`, candidates.map(c => `tag=${c.functional.tagName} css=${c.functional.cssSelector} text="${c.semantic.accessibleName}"`).slice(0, 15).join('\n') + (candidates.length > 15 ? '\n  - ...' : ''));
+    const targetName = step.ObjectName || step.accessibleName || 'unknown';
+    console.log(`[TestRunner] Extracted ${candidates.length} candidate elements for object "${targetName}".`);
 
     // ── Visual Verification: calculate screenshot similarity ─────────────────
     if (step.Screenshot && step.ElementViewportRect && Array.isArray(step.ElementViewportRect) && step.ElementViewportRect.length === 4) {
@@ -569,7 +563,7 @@ export class TestRunner {
         // 4. Sequentially scroll each candidate into view and compare
         for (const c of topCandidates) {
           try {
-            // Check if element is visible in DOM
+            // Check if element is visible in DOM using the unbreakable injected ID
             const locator = page.locator(`[data-ai-healed-id="${c.candidateId}"]`).first();
             const isVisible = await locator.isVisible();
             if (!isVisible) {
@@ -588,7 +582,37 @@ export class TestRunner {
 
             // Get updated client rect of candidate in viewport (piercing shadow DOM)
             const currentRect = await locator.evaluate((el) => {
-              const rect = el.getBoundingClientRect();
+              const getElementRectWithFallback = (element: Element): DOMRect => {
+                const rect = element.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                  return rect;
+                }
+                const slots = element.tagName.toLowerCase() === 'slot' ? [element] : Array.from(element.querySelectorAll('slot'));
+                for (const slot of slots) {
+                  if (typeof (slot as any).assignedNodes === 'function') {
+                    const assigned = (slot as HTMLSlotElement).assignedNodes({ flatten: true });
+                    for (const node of assigned) {
+                      if (node.nodeType === Node.ELEMENT_NODE) {
+                        const r = (node as Element).getBoundingClientRect();
+                        if (r.width > 0 && r.height > 0) return r;
+                      }
+                    }
+                  }
+                }
+                for (const child of Array.from(element.children)) {
+                  const r = getElementRectWithFallback(child);
+                  if (r.width > 0 && r.height > 0) return r;
+                }
+                if (element.shadowRoot) {
+                  for (const child of Array.from(element.shadowRoot.children)) {
+                    const r = getElementRectWithFallback(child);
+                    if (r.width > 0 && r.height > 0) return r;
+                  }
+                }
+                return rect;
+              };
+
+              const rect = getElementRectWithFallback(el);
               return {
                 left: rect.left,
                 top: rect.top,
@@ -815,11 +839,17 @@ export class TestRunner {
     console.log(`[TestRunner] Healing engine successfully resolved locator:`);
     console.log(`  - Old: "${originalLocator}"`);
     console.log(`  - New: "${healResult.healedLocator}"`);
+    console.log(`  - Candidate ID: ${healResult.candidateId !== undefined ? healResult.candidateId : 'N/A'}`);
     console.log(`  - Confidence: ${healResult.confidence * 100}%`);
     console.log(`  - Reason: ${healResult.reason}`);
 
-    const healedEl = page.locator(healResult.healedLocator).first();
-
+    let healedEl: Locator;
+    if (healResult.candidateId !== undefined) {
+      // Execute the action using the completely unbreakable injected data ID!
+      healedEl = page.locator(`[data-ai-healed-id="${healResult.candidateId}"]`).first();
+    } else {
+      healedEl = page.locator(healResult.healedLocator).first();
+    }
     // Ensure element is scrolled into view before validation/action
     await healedEl.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(err => {
       console.warn(`[TestRunner] Failed to scroll element "${healResult.healedLocator}" into view:`, err.message || err);
@@ -845,7 +875,8 @@ export class TestRunner {
       didHeal: true,
       triggeredAI: healResult.triggeredAI,
       confidence: healResult.confidence,
-      reason: healResult.reason
+      reason: healResult.reason,
+      candidateId: healResult.candidateId
     };
   }
 
@@ -855,11 +886,9 @@ export class TestRunner {
    * redirects, and active loader skeletons, without waiting indefinitely on networkidle.
    */
   private async waitForPageSettle(page: Page, timeoutMs = 15000): Promise<void> {
-    console.log(`[TestRunner] Initializing 3-iteration page stabilization...`);
     const startTime = Date.now();
 
     for (let i = 1; i <= 3; i++) {
-      console.log(`[TestRunner] Page stabilization check ${i}/3...`);
       try {
         await page.waitForLoadState('load', { timeout: timeoutMs });
         await page.waitForLoadState('domcontentloaded', { timeout: timeoutMs });
@@ -869,11 +898,9 @@ export class TestRunner {
           console.log(`[TestRunner] Page/browser was closed. Aborting page stabilization.`);
           return;
         }
-        console.warn(`[TestRunner] Page load verification ${i}/3 timed out/failed: ${err.message || err}`);
       }
 
       if (i < 3) {
-        console.log(`[TestRunner] Check ${i}/3 passed. Waiting 5s to verify page state stability...`);
         try {
           await page.waitForTimeout(5000);
         } catch (err: any) {

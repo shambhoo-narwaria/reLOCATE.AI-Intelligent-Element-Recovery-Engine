@@ -6,36 +6,7 @@ import { logger } from '../logger/debug-logger';
 
 
 
-function cleanObject(val: any): any {
-  if (val === null || val === undefined) {
-    return undefined;
-  }
-  if (typeof val === 'string') {
-    return val.trim() === '' ? undefined : val;
-  }
-  if (typeof val === 'boolean') {
-    return val === false ? undefined : val;
-  }
-  if (Array.isArray(val)) {
-    const cleanedArr = val
-      .map(item => cleanObject(item))
-      .filter(item => item !== undefined && item !== null && item !== '');
-    return cleanedArr.length === 0 ? undefined : cleanedArr;
-  }
-  if (typeof val === 'object') {
-    const cleanedObj: Record<string, any> = {};
-    let hasKeys = false;
-    for (const key of Object.keys(val)) {
-      const cleanedVal = cleanObject(val[key]);
-      if (cleanedVal !== undefined && cleanedVal !== null) {
-        cleanedObj[key] = cleanedVal;
-        hasKeys = true;
-      }
-    }
-    return hasKeys ? cleanedObj : undefined;
-  }
-  return val;
-}
+import { cleanObject, cleanCandidate } from '../utils/candidate-cleaner';
 
 export class OpenAIService implements AIProvider {
   private openai: OpenAI;
@@ -91,35 +62,7 @@ export class OpenAIService implements AIProvider {
     // ── Candidate signal summary (flat structure matching recorded properties)
     // Token-optimized: removed nearbyText (noisy), cssSelector (unhelpful), xpath (empty).
     // Added shadowHostChain, tableContext, landmarkRole, headingContext for better disambiguation.
-    const cleanedCandidates = candidates.map(c => {
-      const rawCandidate: Record<string, any> = {
-        candidateId:     c.candidateId,
-        tagName:         c.functional.tagName,
-        className:       c.functional.className || undefined,
-        id:              c.functional.id,
-        name:            c.functional.name,
-        role:            c.functional.role || c.semantic.role,
-        inputType:       c.functional.inputType,
-        interactionType: c.behavior.interactionType,
-        accessibleName:  c.semantic.accessibleName || c.semantic.text,
-        value:           c.functional.value,
-        labelText:       c.neighborhood.closestLabel || c.neighborhood.associatedLabel,
-        parentTag:       c.structure.parentTag,
-        parentId:        c.structure.parentId,
-        indexInParent:   c.structure.indexInParent,
-        domDepth:        c.structure.domDepth,
-        // Full shadow host chain replaces single shadowHostName — critical disambiguator
-        shadowHostChain: c.ancestorContext.shadowHostChain?.length ? c.ancestorContext.shadowHostChain : undefined,
-        ancestorTagNames: c.ancestorContext.ancestorTagNames,
-        landmarkRole:    c.ancestorContext.landmarkRole || undefined,
-        headingContext:  c.ancestorContext.headingContext || undefined,
-      };
-      // Add table context only when element is inside a table (conditional to save tokens)
-      if (c.tableContext) {
-        rawCandidate.tableContext = c.tableContext;
-      }
-      return cleanObject(rawCandidate) || { candidateId: c.candidateId };
-    });
+    const cleanedCandidates = candidates.map(c => cleanCandidate(c));
 
     const systemPrompt = `You are an expert AI element healing system for web UI automation.
 Your task: Given the metadata of an original UI element that CANNOT be located on the current page, and a pool of candidate elements extracted from the current DOM, identify the single candidate MOST LIKELY to be the same logical element.

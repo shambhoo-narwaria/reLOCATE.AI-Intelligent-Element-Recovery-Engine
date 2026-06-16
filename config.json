@@ -1,0 +1,5 @@
+{
+  "USE_AI_MODEL": false,
+  "LOG_CANDIDATES": true,
+  "AI_MAX_CANDIDATES": 10
+}

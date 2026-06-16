@@ -1,5 +1,6 @@
 import * as fs   from 'fs';
 import * as path from 'path';
+import { cleanCandidate } from '../utils/candidate-cleaner';
 
 // ── DebugLogger ────────────────────────────────────────────────────────────────
 // Mirrors every log call to the console AND a timestamped file under /logs/.
@@ -52,10 +53,11 @@ export class DebugLogger {
   }
 
   /** Log the full candidate list before sending to AI */
-  logCandidates(stepName: string, candidates: unknown[]): void {
+  logCandidates(stepName: string, candidates: any[]): void {
+    const cleaned = candidates.map(c => cleanCandidate(c));
     const header = `\n── CANDIDATES SENT TO AI (step="${stepName}", count=${candidates.length}) ──────────\n`;
     this.write(header);
-    this.write(JSON.stringify(candidates, null, 2) + '\n');
+    this.write(JSON.stringify(cleaned, null, 2) + '\n');
   }
 
   /** Log the exact AI request payload */
@@ -76,11 +78,14 @@ export class DebugLogger {
   }
 
   /** Log the final healing decision */
-  logHealResult(stepName: string, oldLocator: string, newLocator: string, confidence: number, reason: string): void {
+  logHealResult(stepName: string, oldLocator: string, newLocator: string, confidence: number, reason: string, candidateId?: number): void {
     const header = `\n── HEAL RESULT (step="${stepName}") ────────────────────────────────────────────\n`;
     this.write(header);
     this.write(`  Old locator : ${oldLocator}\n`);
     this.write(`  New locator : ${newLocator}\n`);
+    if (candidateId !== undefined) {
+      this.write(`  Candidate ID: ${candidateId}\n`);
+    }
     this.write(`  Confidence  : ${(confidence * 100).toFixed(0)}%\n`);
     this.write(`  Reason      : ${reason}\n`);
   }

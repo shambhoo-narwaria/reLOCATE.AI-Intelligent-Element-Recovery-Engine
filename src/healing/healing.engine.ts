@@ -3,6 +3,21 @@ import { ScoringEngine } from '../scoring/scoring.engine';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
 import { HealingResult } from '../interfaces/healing-result.interface';
+import { logger } from '../logger/debug-logger';
+import * as fs from 'fs';
+import * as path from 'path';
+
+function loadConfig() {
+  try {
+    const configPath = path.join(process.cwd(), 'config.json');
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch (err) {
+    console.error('[HealingEngine] Failed to read config.json, using defaults.', err);
+  }
+  return { USE_AI_MODEL: false, LOG_CANDIDATES: false, AI_MAX_CANDIDATES: 10 };
+}
 
 export class HealingEngine {
   private stats = {
@@ -67,7 +82,6 @@ export class HealingEngine {
         pool = filtered;
         console.log(`\n[HealingEngine] ── FILTER 2a: Tag = "${origTag}" (Shadow hosts: ${shadowHostTags.join(', ') || 'none'}) ──`);
         console.log(`[HealingEngine]    ${pool.length} of ${candidates.length} candidates survived.`);
-        console.log(this.formatCandidates(pool));
       } else {
         console.warn(`[HealingEngine] No candidates match tag "${origTag}" or shadow hosts [${shadowHostTags.join(', ')}]. Falling back to full pool.`);
         pool = candidates;
@@ -84,7 +98,6 @@ export class HealingEngine {
         pool = inputTypeFiltered;
         console.log(`\n[HealingEngine] ── FILTER 2b: inputType = "${origInputType}" ──────────────────`);
         console.log(`[HealingEngine]    ${pool.length} candidates survived.`);
-        console.log(this.formatCandidates(pool));
       } else {
         console.warn(`[HealingEngine] ⚠  No candidates match inputType "${origInputType}". Keeping tag-filtered pool.`);
       }
@@ -96,11 +109,23 @@ export class HealingEngine {
     const bestMatch  = scoredPool[0];
     const runnerUp   = scoredPool[1];
 
-    console.log(`\n[HealingEngine] ── STEP 3: Rule-based Scores ───────────────────────────────`);
-    scoredPool.forEach((r, i) =>
+    console.log(`\n[HealingEngine] ── STEP 3: Rule-based Scores (Top 3) ───────────────────────────────`);
+    scoredPool.slice(0, 3).forEach((r, i) =>
       console.log(`[HealingEngine]    #${i + 1}  score=${r.score.toFixed(1).padStart(5)}  [ID ${r.candidate.candidateId}] ${r.candidate.functional.tagName}  css="${r.candidate.functional.cssSelector}"  text="${r.candidate.semantic.accessibleName}"`)
     );
     console.log(`[HealingEngine]    → Best: [ID ${bestMatch.candidate.candidateId}] score=${bestMatch.score}  RunnerUp: ${runnerUp ? `[ID ${runnerUp.candidate.candidateId}] score=${runnerUp.score}` : 'N/A'}`);
+
+    const config = loadConfig();
+
+    // Prepare the pruned candidate pool (we do this regardless of AI so we can log it)
+    const maxAiCandidates = config.AI_MAX_CANDIDATES || 10;
+    const topScoredCandidates = scoredPool.slice(0, maxAiCandidates);
+    const prunedPool = topScoredCandidates.map(item => item.candidate);
+
+    // Log the top candidates to the debug file for manual inspection if enabled
+    if (config.LOG_CANDIDATES) {
+      logger.logCandidates(original.ObjectName || 'unknown', prunedPool);
+    }
 
     // Determine if AI is needed:
     // 1. Top score is less than 90
@@ -108,42 +133,44 @@ export class HealingEngine {
     const needsAI = !!original.forceAI || bestMatch.score < 90 || (runnerUp && (bestMatch.score - runnerUp.score) < 5);
 
     if (needsAI) {
-      console.log(`[HealingEngine] Triggering AI Reasoning Layer (Top Score: ${bestMatch.score}, Needs AI: ${needsAI})`);
-      this.stats.totalAISelections++;
-      
-      try {
-        // Prune the candidate pool sent to the AI using the heuristic pre-scoring
-        const maxAiCandidates = parseInt(process.env.AI_MAX_CANDIDATES || '10', 10);
-        const topScoredCandidates = scoredPool.slice(0, maxAiCandidates);
-        const prunedPool = topScoredCandidates.map(item => item.candidate);
-
-        console.log(`[HealingEngine] Pruning candidate pool for AI: ${sortedPool.length} -> ${prunedPool.length} (Max limit: ${maxAiCandidates})`);
-        console.log(`[HealingEngine] Sending candidate IDs to AI: ${prunedPool.map(c => c.candidateId).join(', ')}`);
-
-        const aiResult = await this.aiProvider.askAI(original, prunedPool);
-        const selectedCandidate = sortedPool.find(c => c.candidateId === aiResult.candidateId);
+      if (config.USE_AI_MODEL === false) {
+        console.log(`[HealingEngine] AI Reasoning is disabled in .env (USE_AI_MODEL=false). Falling back directly to highest rule-based candidate.`);
+      } else {
+        console.log(`[HealingEngine] Triggering AI Reasoning Layer (Top Score: ${bestMatch.score}, Needs AI: ${needsAI})`);
+        this.stats.totalAISelections++;
         
-        if (selectedCandidate) {
-          const locator = `[data-ai-healed-id="${selectedCandidate.candidateId}"]`;
-          return {
-            healedLocator: locator,
-            confidence: aiResult.confidence,
-            reason: `AI reasoning selected this element. AI Reason: ${aiResult.reason}`,
-            triggeredAI: true
-          };
+        try {
+          console.log(`[HealingEngine] Pruning candidate pool for AI: ${sortedPool.length} -> ${prunedPool.length} (Max limit: ${maxAiCandidates})`);
+          console.log(`[HealingEngine] Sending candidate IDs to AI: ${prunedPool.map(c => c.candidateId).join(', ')}`);
+
+          const aiResult = await this.aiProvider.askAI(original, prunedPool);
+          const selectedCandidate = sortedPool.find(c => c.candidateId === aiResult.candidateId);
+          
+          if (selectedCandidate) {
+            const locator = selectedCandidate.functional.cssSelector;
+            return {
+              healedLocator: locator,
+              confidence: aiResult.confidence,
+              reason: `AI reasoning selected this element. AI Reason: ${aiResult.reason}`,
+              triggeredAI: true,
+              candidateId: selectedCandidate.candidateId
+            };
+          }
+        } catch (err: any) {
+          // Keep logs clean: print just the message instead of the massive stack trace
+          console.error(`[HealingEngine] ⚠ Error invoking AI reasoning: ${err.message?.split('\n')[0] || err}. Falling back to highest rule-based candidate.`);
         }
-      } catch (err) {
-        console.error('[HealingEngine] Error invoking AI reasoning. Falling back to highest rule-based candidate.', err);
       }
     }
 
     // Fall back to rule-based best candidate
-    const locator = `[data-ai-healed-id="${bestMatch.candidate.candidateId}"]`;
+    const locator = bestMatch.candidate.functional.cssSelector;
     return {
       healedLocator: locator,
       confidence: bestMatch.score / 100,
       reason: `Rule-based scoring selected this element with a score of ${bestMatch.score}.`,
-      triggeredAI: false
+      triggeredAI: false,
+      candidateId: bestMatch.candidate.candidateId
     };
   }
 

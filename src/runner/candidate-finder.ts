@@ -289,6 +289,8 @@ export class CandidateFinder {
 
       const collected = collectAll(document, [], 0);
 
+
+
       // ── Build candidates ──────────────────────────────────────────────────
       return collected.map(({ el, hostChain, absoluteDepth }: CollectedEl, index: number) => {
         const uniqueId = startCounter + index;
@@ -626,10 +628,10 @@ export class CandidateFinder {
         if (ALWAYS_EXCLUDE.includes(t)) return false;
 
         // ── Inclusion rules ────────────────────────────────────────────────
-        const isNativeFormControl = ['input', 'button', 'select', 'textarea', 'a'].includes(t);
+        const isNativeFormControl = ['input', 'button', 'select', 'textarea', 'a', 'img'].includes(t);
         if (isNativeFormControl) return true;
         if (t.includes('-')) return true;           // custom elements (ZUI-*, etc.)
-        if (extraTag && t === extraTag) return true;
+        if (extraTag && t === extraTag.toLowerCase()) return true;
 
         if (cand.functional.role) return true;
         if (cand.functional.id || cand.functional.dataTestId || cand.functional.dataQa) return true;

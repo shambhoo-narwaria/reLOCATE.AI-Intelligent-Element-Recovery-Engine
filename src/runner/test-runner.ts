@@ -98,15 +98,11 @@ export class TestRunner {
             // The overlay is always removed before the real action executes.
             await this.highlightElement(page, element);
 
-            // ── Disabled element guard ────────────────────────────────────
-            // If the element is visible but disabled (e.g. Save button before
-            // required fields are filled), skip the click and warn rather than
-            // timing out for 30 seconds and crashing the run.
-            const isDisabled = await element.isDisabled().catch(() => false);
+            // ── Disabled element guard removed ──
+            // We now rely on Playwright's native auto-wait to wait for the element to become enabled.
             const candIdStr = result.candidateId !== undefined ? ` (Candidate ID: ${result.candidateId})` : '';
-            if (isDisabled) {
-              console.warn(`[TestRunner] ⚠  Element "${result.newLocator}"${candIdStr} for step "${step.ObjectName}" is DISABLED. Skipping action and continuing to next step.`);
-            } else if (step.Action === 'Click') {
+            
+            if (step.Action === 'Click') {
               console.log(`[TestRunner] Clicking element: "${result.newLocator}"${candIdStr}`);
               try {
                 await element.click({ timeout: 8000 });
@@ -220,7 +216,7 @@ export class TestRunner {
     const originalLocator = locCss || locXpath || '';
 
     // as the testing purpose break the classical locators on any step
-    const shouldForceAI = [22, 23, 24, 25, 26].includes(stepIndex);
+    const shouldForceAI = [15, 16, 17, 22, 23, 24, 25, 26].includes(stepIndex);
 
     // Helper function to try locating the element using original locators
     const tryOriginalLocators = async (timeoutMs: number): Promise<Locator | null> => {
@@ -309,15 +305,16 @@ export class TestRunner {
     // Try original locators first (quick check / wait) unless we force AI for specific steps
     let el = null;
     if (shouldForceAI) {
-      console.log(`[Simulation] Bypassing original locators for step ${stepIndex + 1} (index ${stepIndex}) "${step.ObjectName}" to force AI healing...`);
+      logger.debug(`[Simulation] Bypassing original locators for step ${stepIndex + 1} (index ${stepIndex}) "${step.ObjectName}" to force AI healing...`);
       step.forceAI = true;
 
       // ── Page stabilization wait for forced AI ─────────────────────────────────────
-      console.log(`[Simulation] Waiting for page load and stabilization before initializing AI healing...`);
-      await this.waitForPageSettle(page);
+      logger.debug(`[Simulation] Waiting for page load and stabilization before initializing AI healing...`);
+      await this.waitForPageSettle(page, 30000);
     } else {
       el = await tryOriginalLocators(5000);
     }
+    
     if (el) {
       return {
         locator: el,
@@ -329,34 +326,15 @@ export class TestRunner {
       };
     }
 
-    // Tier 2: Wait 5 seconds and retry
+    // Tier 2: Wait 5 seconds and retry (Final attempt before healing)
     if (!shouldForceAI) {
-      console.log(`[TestRunner] Original locator failed. Waiting 5s before retrying...`);
+      logger.debug(`[TestRunner] Original locator failed. Waiting 5s before retrying...`);
       await page.waitForTimeout(5000);
       el = await tryOriginalLocators(5000);
     }
+    
     if (el) {
-      console.log(`[TestRunner] Success! Original locator found on 2nd attempt.`);
-      return {
-        locator: el,
-        oldLocator: originalLocator,
-        newLocator: originalLocator,
-        didHeal: false,
-        triggeredAI: false,
-        confidence: 1.0
-      };
-    }
-
-    // Tier 3: Wait for page stabilization and sleep 10s, then retry
-    if (!shouldForceAI) {
-      console.warn(`[TestRunner] Second locator attempt failed. Waiting for page to fully load and stabilize...`);
-      await this.waitForPageSettle(page, 30000);
-
-      console.log(`[TestRunner] Retrying original locators after page stabilization (3rd attempt)...`);
-      el = await tryOriginalLocators(5000);
-    }
-    if (el) {
-      console.log(`[TestRunner] Success! Original locator found after page stabilization (3rd attempt).`);
+      logger.debug(`[TestRunner] Success! Original locator found on 2nd attempt.`);
       return {
         locator: el,
         oldLocator: originalLocator,
@@ -368,16 +346,25 @@ export class TestRunner {
     }
 
     // Locator STILL failed, trigger AI healing!
-    console.warn(`[TestRunner] Original locators genuinely failed for object "${step.ObjectName}". Initializing healing engine...`);
+    logger.warn(`[TestRunner] Original locators genuinely failed for object "${step.ObjectName}". Initializing healing engine...`);
 
     // (Domain mismatch check removed as requested)
     
     // Ensure the page is fully loaded before scraping candidates and creating the AI payload
-    console.log(`[TestRunner] Ensuring page is fully loaded before creating AI payload...`);
-    await this.waitForPageSettle(page);
+    logger.debug(`[TestRunner] Ensuring page is fully loaded before creating AI payload...`);
+    await this.waitForPageSettle(page, 30000);
+
+    const consoleListener = (msg: any) => {
+      if (msg.text().includes('[CandidateFinder]')) {
+        logger.debug(msg.text());
+      }
+    };
+    page.on('console', consoleListener);
 
     // Scrape candidates with loading retries
     let candidates = await this.candidateFinder.findCandidates(page, step.OrigTagName);
+
+    page.removeListener('console', consoleListener);
 
     // ── Filter shadow-internal and loading-placeholder elements ──────────────
     // Generic keyword-based heuristic: elements with IDs containing 'slot',
@@ -463,10 +450,10 @@ export class TestRunner {
       const origTagUpper = step.OrigTagName.toUpperCase();
       const sameTagCandidates = candidates.filter(c => c.functional.tagName.toUpperCase() === origTagUpper);
       if (sameTagCandidates.length > 0) {
-        console.log(`[TestRunner] Tag filter: restricting ${candidates.length} → ${sameTagCandidates.length} candidates with tagName="${origTagUpper}"`);
+        logger.debug(`[TestRunner] Tag filter: restricting ${candidates.length} → ${sameTagCandidates.length} candidates with tagName="${origTagUpper}"`);
         candidates = sameTagCandidates;
       } else {
-        console.log(`[TestRunner] Tag filter: no candidates with tagName="${origTagUpper}" found — keeping full pool of ${candidates.length}`);
+        logger.debug(`[TestRunner] Tag filter: no candidates with tagName="${origTagUpper}" found — keeping full pool of ${candidates.length}`);
       }
     }
 
@@ -477,7 +464,7 @@ export class TestRunner {
     // ObjectName + NearByText PLUS a shadow host chain affinity bonus to ensure
     // deeply-nested form controls (e.g. input#raw inside ZUI-TEXTFIELD-V3-17)
     // are never discarded when they live inside the correct shadow component tree.
-    const MAX_CANDIDATES = 60;
+    const MAX_CANDIDATES = 70;
     if (candidates.length > MAX_CANDIDATES) {
       const resolvedName = (step.LocText || step.LocTitle || step.OwnInnerText || '').trim();
       const objectWords = resolvedName.toLowerCase().split(/\W+/).filter(Boolean);
@@ -497,6 +484,21 @@ export class TestRunner {
           }).filter(Boolean)
         )
       );
+
+      // Extract original tail tags from CSS Selector for structural matching
+      // e.g. "div#modal > form > div > button" -> ["BUTTON", "DIV", "FORM", "DIV"]
+      const origTailTags: string[] = [];
+      if (step.LocCssSelector) {
+        const parts = step.LocCssSelector.split('>');
+        // reverse it so index 0 is the element itself, index 1 is parent, etc.
+        for (let i = parts.length - 1; i >= 0; i--) {
+          const match = parts[i].trim().match(/^([a-zA-Z0-9-]+)/);
+          if (match) {
+            origTailTags.push(match[1].toUpperCase());
+          }
+        }
+      }
+
       const scored = candidates.map(c => {
         const haystack = [
           c.semantic.text,
@@ -510,9 +512,62 @@ export class TestRunner {
         ].join(' ').toLowerCase();
 
         // Keyword hits (primary signal)
-        const hits = allKeywords.filter(kw => haystack.includes(kw)).length;
+        let hits = allKeywords.filter(kw => haystack.includes(kw)).length;
 
-        // Shadow host chain affinity: count how many of the original's shadow host
+        // ── Smarter Precision Bonuses ──
+        // 1. Text Conciseness Bonus
+        // If the candidate contains the target text, reward it if it doesn't have too much EXTRA text.
+        // This prevents bulky parent containers from beating precise child elements.
+        if (step.LocText && c.semantic.text) {
+          const targetLen = step.LocText.length;
+          const candLen = c.semantic.text.length;
+          const textLower = c.semantic.text.toLowerCase();
+          const targetLower = step.LocText.toLowerCase();
+          
+          if (textLower.includes(targetLower) || (c.semantic.accessibleName && c.semantic.accessibleName.toLowerCase().includes(targetLower))) {
+            hits += 5; // Contains the text
+            const lenDiff = Math.abs(candLen - targetLen);
+            if (lenDiff <= 5) hits += 30;       // Almost exact length
+            else if (lenDiff <= 20) hits += 15; // Close length
+          }
+        }
+
+        // 2. Unlabeled Element Handle (Icon/Button Bonus)
+        // If the element has no text, its class name is critical. Reward candidates whose
+        // class name closely matches the original class name without too many extra utility classes.
+        if (step.LocClassName && c.functional.className) {
+          const classLower = c.functional.className.toLowerCase();
+          const targetClassLower = step.LocClassName.toLowerCase();
+          if (classLower.includes(targetClassLower)) {
+            hits += 5; // Contains the class
+            const lenDiff = Math.abs(classLower.length - targetClassLower.length);
+            if (lenDiff <= 5) hits += 20;       // Almost exact class match
+          }
+        }
+
+        // 3. Ancestor Tail Similarity Bonus
+        // Compare the last few ancestors to strictly distinguish deeply nested UI elements from top-level wrappers
+        if (origTailTags.length > 1 && c.ancestorContext && c.ancestorContext.ancestorTagNames) {
+          const candAncestors = c.ancestorContext.ancestorTagNames;
+          // candAncestors[0] is parent, candAncestors[1] is grandparent.
+          // origTailTags[0] is the element itself, origTailTags[1] is parent.
+          let tailMatches = 0;
+          const maxDepthToCheck = Math.min(4, origTailTags.length - 1); // check up to 4 ancestors
+          for (let i = 0; i < maxDepthToCheck; i++) {
+            if (candAncestors.length > i && candAncestors[i] === origTailTags[i + 1]) {
+              tailMatches++;
+              hits += 5; // +5 per matching ancestor level
+            } else {
+              break; // Break on first mismatch to enforce continuous structural tail
+            }
+          }
+          // Extra bonus if the entire tail checked matches perfectly
+          if (tailMatches === maxDepthToCheck && tailMatches > 0) {
+            hits += 15;
+          }
+        }
+
+        // 4. Shadow host chain affinity: count how many of the original's shadow host
         // tags appear in this candidate's recorded shadowHostChain.
         // Score is normalised to [0, 8] — heavier than a single keyword hit —
         // so that inputs with correct shadow hierarchy survive even with 0 text hits.
@@ -531,11 +586,14 @@ export class TestRunner {
       // Sort: combined score DESC, then candidateId ASC (DOM order as tiebreak)
       scored.sort((a, b) => b.score - a.score || a.c.candidateId - b.c.candidateId);
       candidates = scored.slice(0, MAX_CANDIDATES).map(s => s.c);
-      console.log(`[TestRunner] Relevance cap applied: kept top ${candidates.length} of ${scored.length} candidates (keywords: [${allKeywords.slice(0, 8).join(', ')}])`);
+      logger.debug(`[TestRunner] Relevance cap applied: kept top ${candidates.length} of ${scored.length} candidates (keywords: [${allKeywords.slice(0, 8).join(', ')}])`);
     }
 
     const targetName = step.ObjectName || step.accessibleName || 'unknown';
-    console.log(`[TestRunner] Extracted ${candidates.length} candidate elements for object "${targetName}".`);
+    logger.debug(`[TestRunner] Extracted ${candidates.length} final candidate elements for object "${targetName}":`);
+    candidates.forEach((c, idx) => {
+      logger.debug(`   - Candidate #${idx + 1} [ID ${c.candidateId}] text="${c.semantic.text?.substring(0,30) || ''}" cls="${c.functional.className || ''}" xpath="${c.functional.cssSelector || ''}"`);
+    });
 
     // ── Visual Verification: calculate screenshot similarity ─────────────────
     if (step.Screenshot && step.ElementViewportRect && Array.isArray(step.ElementViewportRect) && step.ElementViewportRect.length === 4) {
@@ -554,7 +612,7 @@ export class TestRunner {
 
         // 3. Take the top 20 candidates
         const topCandidates = preScored.slice(0, 20).map(item => item.candidate);
-        console.log(`[TestRunner] Pre-scored tag-matched candidates. Verifying top ${topCandidates.length} sequentially with scroll-into-view.`);
+        logger.debug(`[TestRunner] Pre-scored tag-matched candidates. Verifying top ${topCandidates.length} sequentially with scroll-into-view.`);
 
         const similarities: any[] = [];
         const originalScreenshotB64 = step.Screenshot;
@@ -683,13 +741,25 @@ export class TestRunner {
                 const imgCurr = await loadImage("data:image/jpeg;base64," + currentB64);
 
                 const [origLeft, origTop, origRight, origBottom] = originalRect;
-                const origW = origRight - origLeft;
-                const origH = origBottom - origTop;
+                const rawOrigW = origRight - origLeft;
+                const rawOrigH = origBottom - origTop;
 
-                if (origW <= 0 || origH <= 0) return { similarity: 0 };
+                if (rawOrigW <= 0 || rawOrigH <= 0) return { similarity: 0 };
                 if (!candRect || candRect.width <= 0 || candRect.height <= 0) return { similarity: 0 };
 
-                // Proportional target canvas dimensions based on original element (capped at 256px max)
+                // Shave off the edges to ignore bounding-box artifacts drawn during recording
+                // We shave off up to 4px, but no more than 10% of the element's width/height to protect tiny icons
+                const INSET_X = Math.floor(Math.min(rawOrigW * 0.1, 4));
+                const INSET_Y = Math.floor(Math.min(rawOrigH * 0.1, 4));
+
+                const origCropLeft = origLeft + INSET_X;
+                const origCropTop = origTop + INSET_Y;
+                const origW = rawOrigW - (INSET_X * 2);
+                const origH = rawOrigH - (INSET_Y * 2);
+
+                if (origW <= 0 || origH <= 0) return { similarity: 0 };
+
+                // Proportional target canvas dimensions based on cropped original element (capped at 256px max)
                 const maxDimOrig = Math.max(origW, origH);
                 const scaleOrig = 256 / maxDimOrig;
                 const targetW = Math.max(1, Math.round(origW * scaleOrig));
@@ -702,7 +772,7 @@ export class TestRunner {
                 const ctxOrig = canvasOrig.getContext('2d');
                 if (!ctxOrig) return { similarity: 0 };
 
-                ctxOrig.drawImage(imgOrig, origLeft, origTop, origW, origH, 0, 0, targetW, targetH);
+                ctxOrig.drawImage(imgOrig, origCropLeft, origCropTop, origW, origH, 0, 0, targetW, targetH);
                 const dataOrig = ctxOrig.getImageData(0, 0, targetW, targetH).data;
                 const origImgData = canvasOrig.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
 
@@ -719,10 +789,21 @@ export class TestRunner {
                 if (!ctxCand) return { similarity: 0 };
 
                 // Convert logical CSS coordinates to physical pixels
-                const candLeft = candRect.left * devicePixelRatio;
-                const candTop = candRect.top * devicePixelRatio;
-                const candW = candRect.width * devicePixelRatio;
-                const candH = candRect.height * devicePixelRatio;
+                const candBaseLeft = candRect.left * devicePixelRatio;
+                const candBaseTop = candRect.top * devicePixelRatio;
+                const candBaseW = candRect.width * devicePixelRatio;
+                const candBaseH = candRect.height * devicePixelRatio;
+
+                // Scale the original inset proportionally for the candidate
+                const candInsetX = (INSET_X / rawOrigW) * candBaseW;
+                const candInsetY = (INSET_Y / rawOrigH) * candBaseH;
+
+                const candLeft = candBaseLeft + candInsetX;
+                const candTop = candBaseTop + candInsetY;
+                const candW = candBaseW - (candInsetX * 2);
+                const candH = candBaseH - (candInsetY * 2);
+
+                if (candW <= 0 || candH <= 0) return { similarity: 0 };
 
                 ctxCand.drawImage(imgCurr, candLeft, candTop, candW, candH, 0, 0, targetW, targetH);
                 const dataCand = ctxCand.getImageData(0, 0, targetW, targetH).data;
@@ -886,73 +967,67 @@ export class TestRunner {
    * redirects, and active loader skeletons, without waiting indefinitely on networkidle.
    */
   private async waitForPageSettle(page: Page, timeoutMs = 15000): Promise<void> {
-    const startTime = Date.now();
+    if (page.isClosed()) {
+      logger.debug(`[TestRunner] Page/browser was closed. Aborting page stabilization.`);
+      return;
+    }
 
-    for (let i = 1; i <= 3; i++) {
-      try {
-        await page.waitForLoadState('load', { timeout: timeoutMs });
-        await page.waitForLoadState('domcontentloaded', { timeout: timeoutMs });
-        await page.waitForFunction(() => document.readyState === 'complete', { timeout: timeoutMs });
-      } catch (err: any) {
-        if (err.message?.includes('closed') || err.message?.includes('Target page, context or browser has been closed')) {
-          console.log(`[TestRunner] Page/browser was closed. Aborting page stabilization.`);
-          return;
-        }
+    try {
+      await page.waitForLoadState('networkidle', { timeout: Math.min(timeoutMs, 5000) }).catch(() => {
+        // silent timeout
+      });
+      
+      if (page.isClosed()) {
+        logger.debug(`[TestRunner] Page/browser was closed during wait. Aborting.`);
+        return;
       }
 
-      if (i < 3) {
+      // Check common spinner/loader selectors
+      const loaderSelectors = [
+        '[class*="spinner"]',
+        '[class*="loader"]',
+        '[class*="loading"]',
+        '[aria-busy="true"]',
+        'mat-spinner',
+        'zui-spinner',
+        '[class*="skeleton"]', 
+        '[data-test*="skeleton"]'
+      ];
+      
+      for (const selector of loaderSelectors) {
         try {
-          await page.waitForTimeout(5000);
-        } catch (err: any) {
-          if (err.message?.includes('closed') || err.message?.includes('Target page, context or browser has been closed')) {
-            console.log(`[TestRunner] Page/browser was closed during wait. Aborting.`);
-            return;
+          if (await page.locator(selector).first().isVisible({ timeout: 100 })) {
+            logger.debug(`[TestRunner] Detected active loader/skeleton: "${selector}". Waiting for it to hide...`);
+            await page.waitForSelector(selector, { state: 'hidden', timeout: timeoutMs });
           }
-          throw err;
+        } catch {
+          // ignore timeouts or invalid selectors
         }
       }
-    }
 
-    // Also wait for common loading skeletons or spinners to disappear
-    const loadingSelectors = ['[class*="skeleton"]', '[data-test*="skeleton"]', '[class*="spinner"]', '[class*="loading"]','.loading','#loading','#spinner'];
-
-    const elapsed = Date.now() - startTime;
-    const remainingTimeout = Math.max(2000, timeoutMs - elapsed);
-
-    try {
-      await Promise.all(
-        loadingSelectors.map(async (selector) => {
-          try {
-            const locator = page.locator(selector);
-            if (await locator.count() > 0 && await locator.first().isVisible()) {
-              console.log(`[TestRunner] Detected active loader/skeleton: "${selector}". Waiting for it to hide...`);
-              await locator.first().waitFor({ state: 'hidden', timeout: remainingTimeout });
-            }
-          } catch (err: any) {
-            if (err.message?.includes('closed') || err.message?.includes('Target page, context or browser has been closed')) {
-              throw err;
-            }
-          }
-        })
-      );
-    } catch (err: any) {
-      if (err.message?.includes('closed') || err.message?.includes('Target page, context or browser has been closed')) {
-        console.log(`[TestRunner] Page/browser was closed during loader checks. Aborting.`);
+      if (page.isClosed()) {
+        logger.debug(`[TestRunner] Page/browser was closed during loader checks. Aborting.`);
         return;
       }
-    }
 
-    console.log(`[TestRunner] Dynamic content settling wait (1.5s)...`);
-    try {
+      // Final fixed wait for transitions/animations to settle
+      logger.debug(`[TestRunner] Dynamic content settling wait (1.5s)...`);
       await page.waitForTimeout(1500);
+
+      // Force layout recalculation
+      await page.evaluate(() => {
+        // trigger reflow
+        document.body.getBoundingClientRect();
+      });
+      
+      logger.debug(`[TestRunner] Page stabilization complete.`);
     } catch (err: any) {
-      if (err.message?.includes('closed') || err.message?.includes('Target page, context or browser has been closed')) {
-        console.log(`[TestRunner] Page/browser was closed during settling wait. Aborting.`);
+      if (err.message && (err.message.includes('closed') || err.message.includes('Target page, context or browser has been closed'))) {
+        logger.debug(`[TestRunner] Page/browser was closed during wait operations. Aborting.`);
         return;
       }
-      throw err;
+      logger.debug(`[TestRunner] Page stabilization wait encountered an error (ignoring):`, err);
     }
-    console.log(`[TestRunner] Page stabilization complete.`);
   }
 
   private getFilteredCandidates(step: OriginalElement, candidates: Candidate[]): Candidate[] {

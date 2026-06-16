@@ -46,6 +46,29 @@ export class DebugLogger {
     }
   }
 
+  /** Warning log line (also prints to console.warn) */
+  warn(message: string, data?: unknown): void {
+    const ts   = new Date().toISOString();
+    const line = `[${ts}] [WARN] ${message}`;
+    console.warn(line);
+    this.write(line + '\n');
+    if (data !== undefined) {
+      const dump = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+      this.write(dump + '\n');
+    }
+  }
+
+  /** Debug log line (writes to FILE ONLY, completely hides from console to prevent spam) */
+  debug(message: string, data?: unknown): void {
+    const ts   = new Date().toISOString();
+    const line = `[${ts}] [DEBUG] ${message}`;
+    this.write(line + '\n');
+    if (data !== undefined) {
+      const dump = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+      this.write(dump + '\n');
+    }
+  }
+
   /** Mark the start of a new test step */
   stepStart(index: number, total: number, action: string, objectName: string): void {
     const header = `\n${'─'.repeat(80)}\nSTEP ${index}/${total}  action="${action}"  object="${objectName}"\n${'─'.repeat(80)}`;

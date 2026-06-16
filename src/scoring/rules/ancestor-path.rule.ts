@@ -66,20 +66,22 @@ export class AncestorPathRule implements ScoringRule {
    * Filters out combinators, class/ID qualifiers, and pseudos to yield tag names.
    */
   private extractHostTags(original: OriginalElement): string[] {
-    const tags = new Set<string>();
+    const tags: string[] = [];
     (original.ShadowDomHostArray || []).forEach((sel: string) => {
       const parts = sel.split(/[\s>+~]+/);
-      parts.forEach(part => {
-        const match = part.match(/^([a-zA-Z0-9-]+)/);
+      // The last part of a shadow host selector is the actual shadow host tag
+      if (parts.length > 0) {
+        const lastPart = parts[parts.length - 1];
+        const match = lastPart.match(/^([a-zA-Z0-9-]+)/);
         if (match) {
           const tag = match[1].toUpperCase();
           if (tag && tag !== 'HTML' && tag !== 'BODY') {
-            tags.add(tag);
+            tags.push(tag);
           }
         }
-      });
+      }
     });
-    return [...tags];
+    return tags;
   }
 
   /**
@@ -92,7 +94,11 @@ export class AncestorPathRule implements ScoringRule {
     // Extract tags from ShadowDomFullXpathArray
     (original.ShadowDomFullXpathArray || []).forEach((xpath: string) => {
       xpath.split('/').filter(Boolean).forEach((seg: string) => {
-        const tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
+        let tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
+        if (tag.includes('NAME()=')) {
+          const match = tag.match(/NAME\(\)=['"]([^'"]+)['"]/);
+          if (match) tag = match[1].toUpperCase();
+        }
         if (tag && tag !== 'HTML' && tag !== 'BODY') {
           pathTags.push(tag);
         }
@@ -103,7 +109,11 @@ export class AncestorPathRule implements ScoringRule {
     const xpathSource = original.FullLocXpath || original.fullXpath || original.LocXpath || original.locXpath;
     if (xpathSource) {
       (xpathSource as string).split('/').filter(Boolean).forEach((seg: string) => {
-        const tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
+        let tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
+        if (tag.includes('NAME()=')) {
+          const match = tag.match(/NAME\(\)=['"]([^'"]+)['"]/);
+          if (match) tag = match[1].toUpperCase();
+        }
         if (tag && tag !== 'HTML' && tag !== 'BODY') {
           pathTags.push(tag);
         }
@@ -176,6 +186,7 @@ export class AncestorPathRule implements ScoringRule {
     }
 
     const lcsLength = dp[m][n];
-    return lcsLength / m;
+    const maxLength = Math.max(m, n);
+    return maxLength === 0 ? 0 : lcsLength / maxLength;
   }
 }

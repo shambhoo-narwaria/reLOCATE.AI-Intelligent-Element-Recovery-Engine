@@ -120,12 +120,18 @@ export class HealingEngine {
     // Prepare the pruned candidate pool (we do this regardless of AI so we can log it)
     const maxAiCandidates = config.AI_MAX_CANDIDATES || 10;
     const topScoredCandidates = scoredPool.slice(0, maxAiCandidates);
-    const prunedPool = topScoredCandidates.map(item => item.candidate);
-
+    
     // Log the top candidates to the debug file for manual inspection if enabled
     if (config.LOG_CANDIDATES) {
-      logger.logCandidates(original.ObjectName || 'unknown', prunedPool);
+      const debugPayload = topScoredCandidates.map(item => ({
+        ...item.candidate,
+        _totalScore: item.score,
+        _ruleScores: item.ruleScores
+      }));
+      logger.logCandidates(original.ObjectName || 'unknown', debugPayload);
     }
+
+    const prunedPool = topScoredCandidates.map(item => item.candidate);
 
     // Determine if AI is needed:
     // 1. Top score is less than 90

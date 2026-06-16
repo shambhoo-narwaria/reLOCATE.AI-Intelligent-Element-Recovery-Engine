@@ -57,5 +57,9 @@ export function cleanCandidate(c: Candidate | any): any {
   if (c.tableContext) {
     rawCandidate.tableContext = c.tableContext;
   }
+  if (c._ruleScores) {
+    rawCandidate.totalScore = c._totalScore;
+    rawCandidate.ruleScores = c._ruleScores;
+  }
   return cleanObject(rawCandidate) || { candidateId: c.candidateId };
 }

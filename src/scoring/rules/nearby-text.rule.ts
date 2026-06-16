@@ -13,7 +13,7 @@ export class NearbyTextRule implements ScoringRule {
   readonly weight = 5;
 
   calculate(original: OriginalElement, candidate: Candidate): number {
-    const origNearby = ((original.NearByText || []) as string[]).slice(0, 4);
+    const origNearby = ((original.NearByText || original.nearbyText || []) as string[]).slice(0, 4);
     if (origNearby.length === 0) return 0;
 
     const candNearby = [

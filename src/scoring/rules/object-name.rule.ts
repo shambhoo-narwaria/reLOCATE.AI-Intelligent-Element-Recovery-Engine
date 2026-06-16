@@ -13,7 +13,8 @@ export class ObjectNameRule implements ScoringRule {
   readonly weight = 30;
 
   calculate(original: OriginalElement, candidate: Candidate): number {
-    const isInput = ['INPUT', 'TEXTAREA'].includes((original.OrigTagName || '').toUpperCase().trim());
+    const origTag = (original.OrigTagName || original.LocTagName || original.tagName || '').toUpperCase().trim();
+    const isInput = ['INPUT', 'TEXTAREA'].includes(origTag);
 
     // For input elements, use original.ObjectName.
     // For non-input elements, use only LocText || LocTitle || OwnInnerText.

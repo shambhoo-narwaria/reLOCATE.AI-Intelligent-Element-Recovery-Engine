@@ -48,9 +48,9 @@ export class AncestorPathRule implements ScoringRule {
       // Check if the original's ObjectName or nearby text mentions the column header
       const origName = (original.LocText || original.LocTitle || original.OwnInnerText || '').toLowerCase().trim();
       const colHeader = candidate.tableContext.columnHeader.toLowerCase().trim();
-      const origNearby = (original.NearByText || []).map(s => s.toLowerCase().trim());
+      const origNearby = ((original.NearByText || original.nearbyText || []) as string[]).map((s: string) => s.toLowerCase().trim());
 
-      if (origNearby.some(t => t.includes(colHeader) || colHeader.includes(t))) {
+      if (origNearby.some((t: string) => t.includes(colHeader) || colHeader.includes(t))) {
         score += 0.2;
       } else if (origName && colHeader) {
         // Partial credit if column header appears in context
@@ -99,9 +99,10 @@ export class AncestorPathRule implements ScoringRule {
       });
     });
 
-    // Extract tags from FullLocXpath
-    if (original.FullLocXpath) {
-      (original.FullLocXpath as string).split('/').filter(Boolean).forEach((seg: string) => {
+    // Extract tags from FullLocXpath (or fallbacks)
+    const xpathSource = original.FullLocXpath || original.fullXpath || original.LocXpath || original.locXpath;
+    if (xpathSource) {
+      (xpathSource as string).split('/').filter(Boolean).forEach((seg: string) => {
         const tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
         if (tag && tag !== 'HTML' && tag !== 'BODY') {
           pathTags.push(tag);

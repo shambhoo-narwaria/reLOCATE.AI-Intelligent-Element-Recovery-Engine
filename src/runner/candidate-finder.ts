@@ -24,6 +24,36 @@ export class CandidateFinder {
       const attr = (el: Element, name: string) => el.getAttribute(name) || '';
       const trimws = (s: string) => s.trim().replace(/\s+/g, ' ');
 
+      const getElementRectWithFallback = (el: Element): DOMRect => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          return rect;
+        }
+        const slots = el.tagName.toLowerCase() === 'slot' ? [el] : Array.from(el.querySelectorAll('slot'));
+        for (const slot of slots) {
+          if (typeof (slot as any).assignedNodes === 'function') {
+            const assigned = (slot as HTMLSlotElement).assignedNodes({ flatten: true });
+            for (const node of assigned) {
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const r = (node as Element).getBoundingClientRect();
+                if (r.width > 0 && r.height > 0) return r;
+              }
+            }
+          }
+        }
+        for (const child of Array.from(el.children)) {
+          const r = getElementRectWithFallback(child);
+          if (r.width > 0 && r.height > 0) return r;
+        }
+        if (el.shadowRoot) {
+          for (const child of Array.from(el.shadowRoot.children)) {
+            const r = getElementRectWithFallback(child);
+            if (r.width > 0 && r.height > 0) return r;
+          }
+        }
+        return rect;
+      };
+
       // ── Shadow & Slot Aware Text Content Scraper ──────────────────────────
       const getElementText = (node: Node): string => {
         if (node.nodeType === Node.TEXT_NODE) {
@@ -205,8 +235,7 @@ export class CandidateFinder {
         el.setAttribute('data-ai-healed-id', String(uniqueId));
         const tagName: string = el.tagName || '';
         const tagLower = tagName.toLowerCase();
-        const rect: DOMRect = el.getBoundingClientRect();
-        const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+        const rect: DOMRect = getElementRectWithFallback(el);
 
         // ── Semantic ─────────────────────────────────────────────────────
         const accessibleName = computeAccessibleName(el);
@@ -409,12 +438,12 @@ export class CandidateFinder {
         }
 
         const ancestorContext: CandidateAncestorContext = {
-          parentText: parentEl ? trimws(parentEl.textContent || '').substring(0, 120) : '',
+          parentText: '',
           parentRole: parentEl ? (attr(parentEl, 'role') || parentEl.tagName.toLowerCase()) : '',
-          ancestorText: ancestors.map(a => trimws(a.textContent || '').substring(0, 80)).filter(Boolean),
+          ancestorText: [],
           ancestorRoles: ancestors.map(a => attr(a, 'role') || a.tagName.toLowerCase()),
           ancestorTagNames: ancestors.map(a => a.tagName),
-          containerText: closestSection ? trimws(closestSection.textContent || '').substring(0, 120) : '',
+          containerText: '',
           containerRole: closestSection ? (attr(closestSection, 'role') || closestSection.tagName.toLowerCase()) : '',
           sectionName: closestSection ? (attr(closestSection, 'aria-label') || attr(closestSection, 'aria-labelledby') || '') : '',
           formName: closestForm ? (attr(closestForm, 'name') || attr(closestForm, 'id') || attr(closestForm, 'aria-label') || '') : '',
@@ -478,15 +507,14 @@ export class CandidateFinder {
         };
 
         // ── Visual ────────────────────────────────────────────────────────
-        const isDisplayContents = style ? style.display === 'contents' : false;
-        const visible = (rect.width > 0 && rect.height > 0) || isDisplayContents;
+        const visible = rect.width > 0 && rect.height > 0;
         const visual: CandidateVisual = {
           visible,
-          display: style ? style.display : '',
+          display: '',
           boundingWidth: rect.width,
           boundingHeight: rect.height,
-          fontWeight: style ? style.fontWeight : '',
-          fontSize: style ? style.fontSize : '',
+          fontWeight: '',
+          fontSize: '',
         };
 
         return {
@@ -503,25 +531,30 @@ export class CandidateFinder {
       }).filter((cand: Candidate) => {
         const t = cand.functional.tagName.toLowerCase();
 
-        // ── Invisible elements: never valid action targets ─────────────────
-        // Elements with zero width or height are hidden (tooltips, collapsed
-        // sections, off-screen elements). ZUI-TOOLTIP-V3, etc. have zero size
-        // when not hovered, making them invisible and non-actionable.
-        if (!cand.visual.visible) return false;
-
         // ── Hard tag exclusions ────────────────────────────────────────────
         const ALWAYS_EXCLUDE = ['slot', 'style', 'template', 'link', 'script', 'meta'];
         if (ALWAYS_EXCLUDE.includes(t)) return false;
 
         // ── Inclusion rules ────────────────────────────────────────────────
-        if (['input', 'button', 'select', 'textarea', 'a'].includes(t)) return true;
+        // IMPORTANT: native form controls (input, textarea, select) inside deep
+        // shadow DOM often return a zero bounding rect because their shadow host
+        // intercepts layout — they ARE real actionable targets and must NEVER be
+        // excluded by the visibility check alone.
+        const isNativeFormControl = ['input', 'button', 'select', 'textarea', 'a'].includes(t);
+        if (isNativeFormControl) return true;
         if (t.includes('-')) return true;           // custom elements (ZUI-*, etc.)
+        if (extraTag && t === extraTag) return true;
+
+        // ── Invisible elements: skip non-form, non-custom elements with zero size ─
+        // Tooltips, collapsed sections, off-screen containers, etc. — these have
+        // zero width/height and are never valid action targets for non-form elements.
+        if (!cand.visual.visible) return false;
+
         if (cand.functional.role) return true;
         if (cand.functional.id || cand.functional.dataTestId || cand.functional.dataQa) return true;
         if (cand.semantic.accessibleName || cand.semantic.text) return true;
         if (cand.behavior.focusable) return true;
         if (cand.structure.containsSvg || cand.structure.containsImage) return true;
-        if (extraTag && t === extraTag) return true;
         return false;
       });
     }, targetTagName);

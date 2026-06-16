@@ -11,7 +11,7 @@ export class VisualSimilarityRule implements ScoringRule {
   readonly weight = 20;
 
   calculate(original: OriginalElement, candidate: Candidate): number {
-    // Return the visual similarity score (defaults to neutral 0.5 if missing)
-    return (candidate.visual.similarity ?? 0.5) * this.weight;
+    // Return the visual similarity score (defaults to 0 if missing)
+    return (candidate.visual.similarity ?? 0) * this.weight;
   }
 }

@@ -87,9 +87,9 @@ export class OpenRouterService implements AIProvider {
       parentId: original.parentId || '',
       indexInParent: original.indexInParent,
       domDepth: original.domDepth,
-      nearbyText: (original.NearByText || []).slice(0, 4),
+      nearbyText: (original.NearByText || original.nearbyText || []).slice(0, 4),
       cssSelector: original.LocCssSelector || '',
-      fullXpath: original.FullLocXpath || '',
+      fullXpath: original.FullLocXpath || original.fullXpath || original.LocXpath || '',
       shadowDomFullXpathArray: original.ShadowDomFullXpathArray || [],
       shadowDomHostTags: shadowDomHostTags.length > 0 ? [...new Set(shadowDomHostTags)] : undefined,
     }) || {};

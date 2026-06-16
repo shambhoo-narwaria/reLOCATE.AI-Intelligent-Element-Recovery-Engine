@@ -3,7 +3,7 @@ import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
 
 export class ScoringEngine {
-  constructor(private rules: ScoringRule[]) {}
+  constructor(public rules: ScoringRule[]) {}
 
   scoreCandidates(original: OriginalElement, candidates: Candidate[]): Array<{ candidate: Candidate; score: number }> {
     const results = candidates.map(candidate => {

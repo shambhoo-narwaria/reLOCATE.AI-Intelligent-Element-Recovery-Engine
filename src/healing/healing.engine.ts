@@ -14,7 +14,7 @@ export class HealingEngine {
     confidenceScores: [] as number[]
   };
 
-  constructor(private aiProvider: AIProvider, private scoringEngine: ScoringEngine) {}
+  constructor(public aiProvider: AIProvider, public scoringEngine: ScoringEngine) {}
 
   async heal(original: OriginalElement, candidates: Candidate[]): Promise<HealingResult> {
     if (!candidates || candidates.length === 0) {

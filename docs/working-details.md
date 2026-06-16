@@ -1,6 +1,6 @@
 # RelocateAI: Detailed Technical Working & Mechanics
 
-This document provides a deep dive into the inner workings, algorithms, and modules of **RelocateAI**. It covers candidate collection, pre-scoring mechanics, the LLM reasoning layers, and the runtime integration pattern with Playwright.
+This document provides a deep dive into the inner workings, algorithms, and modules of **RelocateAI**. It covers candidate collection, pre-scoring mechanics, the LLM reasoning layers, and the runtime integration pattern.
 
 ---
 
@@ -137,7 +137,7 @@ The system prompt contains specialized notes:
 
 ---
 
-## 5. Playwright Integration & Action Execution
+## 5. Integration & Action Execution
 Location: [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/test-runner.ts)
 
 1. **Page Stabilization**: If an element is missing, the runner pauses to wait for the document load state (`document.readyState === 'complete'`) and network-idle states to complete before scraping.
@@ -145,4 +145,4 @@ Location: [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElement
 3. **Attribute Insertion**: When a candidate is scanned, its DOM node is stamped with a unique monotonic ID: `el.setAttribute('data-ai-healed-id', String(uniqueId))`. The `uniqueId` is derived from a persistent monotonic counter on the browser's `window` object (`window.__ai_healing_counter__`). This ensures that every scanned candidate receives a globally unique locator ID across all steps of the test case, even in Single Page Applications (SPAs) where DOM nodes from previous steps remain in memory and could otherwise cause selector collisions. The new locator becomes `[data-ai-healed-id="X"]`.
 4. **Visual Highlights**: Bounding box coordinates are queried, and a red border overlay is drawn around the target element for `600ms` so testers can visually verify what the runner is about to click.
 5. **Action Guard**: If the target element is disabled, the runner warns and skips to prevent execution timeouts, ensuring clean execution of the test suite.
-6. **Action Retry Loop**: If an action fails because the element became detached or invisible immediately before the click (e.g., due to a layout shift or a cookie banner animating out), the runner intercepts the Playwright error, waits 1.5 seconds for layout stabilization, and completely restarts the candidate extraction and healing process from scratch.
+6. **Action Retry Loop**: If an action fails because the element became detached or invisible immediately before the click (e.g., due to a layout shift or a cookie banner animating out), the runner intercepts the execution error, waits 1.5 seconds for layout stabilization, and completely restarts the candidate extraction and healing process from scratch.

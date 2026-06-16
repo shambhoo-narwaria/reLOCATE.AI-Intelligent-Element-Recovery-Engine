@@ -1,6 +1,6 @@
-# RelocateAI (Self-Healing Playwright Locator System)
+# RelocateAI (Self-Healing Locator System)
 
-**RelocateAI** is an AI-powered locator healing system for web UI automation built on Playwright and TypeScript. When a UI element locator breaks due to DOM mutations, dynamic text updates, or design changes, the system extracts runtime candidate elements, scores them using a structured rule engine, and falls back to advanced LLMs (OpenAI/Gemini) to dynamically heal the locator.
+**RelocateAI** is an AI-powered locator healing system for web UI automation built on TypeScript. When a UI element locator breaks due to DOM mutations, dynamic text updates, or design changes, the system extracts runtime candidate elements, scores them using a structured rule engine, and falls back to advanced LLMs (OpenAI/Gemini) to dynamically heal the locator.
 
 ---
 
@@ -11,10 +11,10 @@
 *   **Shadow-DOM & Slot Piercing**: Extracts candidates recursively across shadow boundaries and matches container host tags (e.g., matching target tags to `ShadowDomHostArray` tags like `zui-select-v3-17`).
 *   **Dynamic Dropdown / Value Healing**: Special prompt instructions to properly align selectors where the runtime label reflects a changed dynamic selection (e.g., matching `"Today's patients"` to `"All patients"`).
 *   **Invisible & Lazy-Loaded Element Bypass**: Automatically preserves target tags (like `IMG`) even if they evaluate to zero-width or `opacity: 0` during DOM scraping, allowing delayed resources to be properly healed.
-*   **Animation & Layout Shift Retry Engine**: Catches Playwright `"Element is not visible"` or `"detached"` errors immediately during action execution, wait for layout stabilization, and seamlessly restarts the healing process.
+*   **Animation & Layout Shift Retry Engine**: Catches `"Element is not visible"` or `"detached"` errors immediately during action execution, wait for layout stabilization, and seamlessly restarts the healing process.
 *   **`display: contents` Element Support**: Retains layout-transparent elements (custom buttons, wrappers) in the candidate pool so internal interactive text is never lost.
 *   **Advanced Visual Similarity Penalties**: Heavily penalizes candidates that are massively larger than the original target (e.g., 5x or 10x area difference) to prevent layout containers from falsely matching button edge maps.
-*   **Live Visual Feedback**: Draws temporary highlight bounding boxes around target elements on the screen before performing Playwright actions.
+*   **Live Visual Feedback**: Draws temporary highlight bounding boxes around target elements on the screen before performing actions.
 
 ---
 
@@ -24,8 +24,8 @@ For a simple-to-understand walkthrough of the decision engine flows, visual diag
 
 ```mermaid
 graph TD
-    A[Playwright Runner] -->|1. Try Selector| B(DOM Element Found?)
-    B -->|Yes| C[Execute Playwright Action]
+    A[Runner] -->|1. Try Selector| B(DOM Element Found?)
+    B -->|Yes| C[Execute Action]
     B -->|No| D[Stabilize Page & Scrape Candidates]
     D -->|Candidate Finder| E[Filter & Prune Candidates]
     E -->|Scoring Engine| F[Scoring Rules: Role, Text, Parent, DOM]
@@ -38,7 +38,7 @@ graph TD
     K -->|Visual Highlight| L[Perform Action & Log Output]
 ```
 
-1.  **Test Runner (`src/runner/test-runner.ts`)**: Loads JSON testcases, executes standard Playwright operations, draws overlay borders, validates healed actionability, and maintains run metrics.
+1.  **Test Runner (`src/runner/test-runner.ts`)**: Loads JSON testcases, executes standard operations, draws overlay borders, validates healed actionability, and maintains run metrics.
 2.  **Candidate Finder (`src/runner/candidate-finder.ts`)**: Recursively crawls light DOM and shadow roots. Evaluates bounding boxes, computes accessibility properties, matches interaction states, and stamps each element with a unique `data-ai-healed-id` attribute.
 3.  **Scoring Engine (`src/scoring/scoring.engine.ts`)**: Weights candidates based on multiple rules:
     *   `ObjectNameRule` (Weight 30 — object name / accessibility text match)

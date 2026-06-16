@@ -10,7 +10,7 @@ import { Candidate } from '../interfaces/candidate.interface';
 import { logger } from '../logger/debug-logger';
 
 export class TestRunner {
-  private testCasePath = path.resolve(__dirname, '../../Testcase/AIHealing.json');
+  private testCasePath = path.resolve(__dirname, '../../Testcase/NeuroTestcase.json');
 
   constructor(
     private healingEngine: HealingEngine,
@@ -38,6 +38,15 @@ export class TestRunner {
       console.log(`[TestRunner] Cleared stale visual-debug folder from previous run.`);
     }
     fs.mkdirSync(visualDebugRoot, { recursive: true });
+
+    // ── Clear report from previous runs ────────────────────────────────────────
+    const reportRoot = path.join(process.cwd(), 'report');
+    if (fs.existsSync(reportRoot)) {
+      fs.rmSync(reportRoot, { recursive: true, force: true });
+      console.log(`[TestRunner] Cleared stale report folder from previous run.`);
+    }
+    fs.mkdirSync(reportRoot, { recursive: true });
+
 
     const browser = await chromium.launch({
       // open window maximized, hide "Chrome is being controlled by automated software"
@@ -80,6 +89,16 @@ export class TestRunner {
           console.log(`[TestRunner] Navigating to: ${step.InputData}`);
           await page.goto(step.InputData, { waitUntil: 'load', timeout: 60000 });
           console.log(`[TestRunner] Navigation complete.`);
+
+          // Capture step screenshot in report folder
+          const stepNumStr = String(i + 1).padStart(2, '0');
+          const screenshotPath = path.join(reportRoot, `step-${stepNumStr}.png`);
+          try {
+            await page.screenshot({ path: screenshotPath });
+            console.log(`[TestRunner] Captured step screenshot: ${screenshotPath}`);
+          } catch (err: any) {
+            console.warn(`[TestRunner] Failed to capture screenshot for Navigate step:`, err.message || err);
+          }
         } else if (step.Action === 'Click' || step.Action === 'Enter') {
           let stepSuccess = false;
           let lastActionErr: any = null;
@@ -97,11 +116,11 @@ export class TestRunner {
             const element = result.locator;
 
             try {
-              // ── Visual bounding-box highlight ─────────────────────────────
-              await this.highlightElement(page, element);
+              // ── Visual bounding-box highlight & screenshot ─────────────────
+              await this.highlightAndScreenshot(page, element, i, reportRoot);
 
               const candIdStr = result.candidateId !== undefined ? ` (Candidate ID: ${result.candidateId})` : '';
-              
+
               if (step.Action === 'Click') {
                 console.log(`[TestRunner] Clicking element: "${result.newLocator}"${candIdStr}`);
                 try {
@@ -162,6 +181,15 @@ export class TestRunner {
           }
         } else {
           console.log(`[TestRunner] Action "${step.Action}" not recognized. Skipping step.`);
+          // Capture fallback step screenshot in report folder to keep step numbers aligned
+          const stepNumStr = String(i + 1).padStart(2, '0');
+          const screenshotPath = path.join(reportRoot, `step-${stepNumStr}.png`);
+          try {
+            await page.screenshot({ path: screenshotPath });
+            console.log(`[TestRunner] Captured fallback step screenshot: ${screenshotPath}`);
+          } catch (err: any) {
+            console.warn(`[TestRunner] Failed to capture fallback screenshot for unrecognized step:`, err.message || err);
+          }
         }
         
         await page.waitForTimeout(1000);
@@ -186,10 +214,22 @@ export class TestRunner {
    * duration so the user can visually confirm what is about to be actioned.
    * The overlay is always removed before the caller continues.
    */
-  private async highlightElement(page: Page, locator: Locator): Promise<void> {
+  /**
+   * Draws a red bounding-box highlight around the target element,
+   * captures a full-page screenshot saved inside the 'report' directory,
+   * and removes the highlight overlay.
+   */
+  private async highlightAndScreenshot(page: Page, locator: Locator, stepIndex: number, reportDir: string): Promise<void> {
+    const stepNumStr = String(stepIndex + 1).padStart(2, '0');
+    const screenshotPath = path.join(reportDir, `step-${stepNumStr}.png`);
+
     try {
       const box = await locator.boundingBox();
-      if (!box || box.width === 0 || box.height === 0) return;
+      if (!box || box.width === 0 || box.height === 0) {
+        // Fallback: take screenshot without highlight
+        await page.screenshot({ path: screenshotPath });
+        return;
+      }
 
       // Inject a fixed-position overlay div
       await page.evaluate(({ x, y, width, height }: { x: number; y: number; width: number; height: number }) => {
@@ -215,16 +255,29 @@ export class TestRunner {
         document.body.appendChild(overlay);
       }, box);
 
-      // Keep the highlight visible briefly
-      await page.waitForTimeout(600);
+      // Brief wait to ensure overlay renders
+      await page.waitForTimeout(100);
+
+      // Take the screenshot while highlighted
+      await page.screenshot({ path: screenshotPath });
+      console.log(`[TestRunner] Captured step screenshot with highlight: ${screenshotPath}`);
+
+      // Keep the highlight visible briefly for human/simulation feedback
+      await page.waitForTimeout(500);
 
       // Always remove before acting
       await page.evaluate(() => {
         const overlay = document.getElementById('__ai-healing-highlight__');
         if (overlay) overlay.remove();
       });
-    } catch {
-      // If highlighting fails for any reason, silently continue — never block actions
+    } catch (err: any) {
+      console.warn(`[TestRunner] Highlight/screenshot failed for step ${stepIndex + 1}:`, err.message || err);
+      // Fallback: attempt screenshot anyway
+      try {
+        await page.screenshot({ path: screenshotPath });
+      } catch {
+        // silently ignore screenshot failures
+      }
     }
   }
 
@@ -234,7 +287,7 @@ export class TestRunner {
     const originalLocator = locCss || locXpath || '';
 
     // as the testing purpose break the classical locators on any step
-    const shouldForceAI = [15, 16, 17, 22, 23, 24, 25, 26].includes(stepIndex);
+    const shouldForceAI = [2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 22, 23, 24, 25, 26].includes(stepIndex);
 
     // Helper function to try locating the element using original locators
     const tryOriginalLocators = async (timeoutMs: number): Promise<Locator | null> => {
@@ -439,9 +492,9 @@ export class TestRunner {
       return !hasAnyMeaningful && hasCssHash;
     };
 
-    let retries = 2;
+    let retries = 15;
     while ((candidates.length === 0 || isLoadingStateDom(candidates)) && retries > 0) {
-      const reason = candidates.length === 0 ? '0 candidates' : 'page still in loading-state (CSS-in-JS hashes only)';
+      const reason = candidates.length === 0 ? '0 candidates (waiting for skeleton/loading to settle)' : 'page still in loading-state (CSS-in-JS hashes only)';
       console.log(`[TestRunner] ${reason}. Retrying in 2000ms... (${retries} retries left)`);
       await page.waitForTimeout(2000);
       candidates = await this.candidateFinder.findCandidates(page, step.OrigTagName);

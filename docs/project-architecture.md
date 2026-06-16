@@ -6,7 +6,7 @@ This guide explains the full architecture and decision-making logic of **Relocat
 
 ## 1. High-Level Architecture
 
-RelocateAI operates as a **middle-layer orchestrator** between your Playwright script and the web browser. When a script requests an action (like a Click or Fill) on a locator that cannot be found, RelocateAI intercepts the failure and initiates the self-healing cycle.
+RelocateAI operates as a **middle-layer orchestrator** between your script and the web browser. When a script requests an action (like a Click or Fill) on a locator that cannot be found, RelocateAI intercepts the failure and initiates the self-healing cycle.
 
 ```mermaid
 graph TD
@@ -16,8 +16,8 @@ graph TD
     classDef ai fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
     classDef browser fill:#2d3748,stroke:#a0aec0,stroke-width:1px,color:#edf2f7;
 
-    A[Playwright Runner] -->|1. Locate Element| B{Is Element Found?}:::runner
-    B -->|Yes| C[Execute Standard Action]:::runner
+    A[Runner] -->|1. Locate Element| B{Is Element Found?}:::runner
+    B -->|Yes| C[Apply Highlight & Take Step Screenshot]:::runner
     B -->|No| D[Stabilize Page State]:::runner
     D -->|Scrape DOM & Shadow Roots| E[Candidate Finder]:::browser
     E -->|Filter Layout Wrappers / Skeletons| F[Scoring Engine: Apply 9 Rules]:::engine
@@ -27,8 +27,9 @@ graph TD
     I -->|Strict JSON Selection| J[Select Chosen Candidate]:::ai
     H --> K[Stamp data-ai-healed-id Attribute]:::browser
     J --> K
-    K -->|Draw Visual Highlight Overlay| L[Validate Element Actionability]:::runner
-    L -->|Pass| M[Execute Playwright Click/Fill]:::runner
+    K -->|Draw Highlight & Save step-xx.png to report/| L[Validate Element Actionability]:::runner
+    C --> M[Execute Click/Fill]:::runner
+    L -->|Pass| M
     L -->|Fail| N[Wait & Retry Action]:::runner
     M --> O[Record Run Outcome Stats]:::runner
     N --> O
@@ -40,7 +41,9 @@ graph TD
 
 The Orchestrator (`HealingEngine`) uses a hybrid model. It first calculates a **heuristic score** (0 to 100) using lightweight local math rules. If the local rules are highly confident and there is no ambiguity, it avoids calling expensive LLMs.
 
-The flow chart below details the exact logical decisions made during a locator failure:
+To handle dynamic, slow-loading Single Page Applications (SPAs) and frameworks, the candidate collection loop retries up to **15 times** (at 2-second intervals, allowing a maximum of **30 seconds**) if zero candidates are detected, ensuring that skeleton loadings have settled.
+
+The flowchart below details the exact logical decisions made during a locator failure, highlighting how step screenshots are recorded:
 
 ```mermaid
 flowchart TD
@@ -52,7 +55,12 @@ flowchart TD
     Start[Locator Fails] --> Stabilize[Wait for Page to Settle / waitForPageSettle]:::action
     Stabilize --> Scrape[Scrape DOM & Shadow Root candidates]:::action
     Scrape --> Filter[Apply Shadow-internal & skeleton filters]:::action
-    Filter --> Score[Apply 9 Scoring Rules & Weightings]:::action
+    
+    Filter --> CandidateCheck{Are candidates found?}:::condition
+    CandidateCheck -->|No| RetryWait[Wait 2s & Scrape again: Up to 15 times/30s]:::action
+    RetryWait --> Scrape
+    
+    CandidateCheck -->|Yes| Score[Apply 9 Scoring Rules & Weightings]:::action
     
     Score --> MaxScoreCheck{Is best candidate score >= 90?}:::condition
     
@@ -68,18 +76,18 @@ flowchart TD
     
     TargetStamp --> Validate{Does candidate pass actionability checks?}:::condition
     
-    Validate -->|Yes| Highlight[Highlight element in red for 600ms]:::action
+    Validate -->|Yes| Highlight[Highlight in red & Save step-xx.png to report/]:::action
     Validate -->|No| ExtraWait[Sleep 10 seconds & retry validation]:::action
     
     ExtraWait --> Validate2{Does candidate pass validation now?}:::condition
     Validate2 -->|Yes| Highlight
     Validate2 -->|No| Fail[Throw Healing Validation Error]:::action
     
-    Highlight --> PlaywrightAction[Perform Playwright Click / Fill]:::action
-    PlaywrightAction -->|Success| Success[Record outcome: Healing Success]:::action
-    PlaywrightAction -->|Fail: Not Visible/Detached| RetryDelay[Wait 1.5s for Layout Shift]:::action
+    Highlight --> Action[Perform Click / Fill]:::action
+    Action -->|Success| Success[Record outcome: Healing Success]:::action
+    Action -->|Fail: Not Visible/Detached| RetryDelay[Wait 1.5s for Layout Shift]:::action
     RetryDelay --> Stabilize
-    PlaywrightAction -->|Fail: Other| HardFail[Crash Test Execution]:::action
+    Action -->|Fail: Other| HardFail[Crash Test Execution]:::action
 ```
 
 ---
@@ -172,9 +180,9 @@ The rules are divided into **Algorithmic Rules** (which use mathematical distanc
 
 | Component Name | Role in the System | Code Location |
 | :--- | :--- | :--- |
-| **`TestRunner`** | Coordinates execution. It loops over test steps, handles click/fill timeouts, invokes page-settle stabilization, draws highlights, validates actionability, and executes retries. | [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/test-runner.ts) |
+| **`TestRunner`** | Coordinates execution. It loops over test steps, handles click/fill timeouts, invokes page-settle stabilization, draws highlights, captures step screenshots in the `report/` folder with the target element highlighted, validates actionability, and executes retries. | [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/test-runner.ts) |
 | **`CandidateFinder`** | Injected script that climbs shadow root nodes and slot boundaries recursively to find valid interactive targets. Stamps elements with unique monotonic IDs. | [`src/runner/candidate-finder.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/candidate-finder.ts) |
 | **`ScoringEngine`** | The mathematical evaluator. It receives the raw candidate list and processes each candidate through the 9 rule-scoring components. | [`src/scoring/scoring.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/scoring/scoring.engine.ts) |
 | **`HealingEngine`** | The brains. Orchestrates the decision matrix, filters candidates based on tag structure, runs pre-scoring, determines if LLM is required, and requests AI services. | [`src/healing/healing.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/healing/healing.engine.ts) |
 | **`AI Services`** | Connects to standard APIs (OpenAI, Google Gemini, OpenRouter, vLLM) using strict structured output configurations to select the best candidate. | [`src/ai/`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/ai/) |
-| **`ElementValidator`** | Runs actionability tests (`isVisible`, `isEnabled`, `isEditable`) on healed locators to ensure they are clickable before Playwright proceeds. | [`src/runner/element-validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/element-validator.ts) |
+| **`ElementValidator`** | Runs actionability tests (`isVisible`, `isEnabled`, `isEditable`) on healed locators to ensure they are clickable before execution proceeds. | [`src/runner/element-validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/element-validator.ts) |

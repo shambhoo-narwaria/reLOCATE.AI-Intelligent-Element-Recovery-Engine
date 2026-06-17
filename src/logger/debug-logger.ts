@@ -34,15 +34,33 @@ export class DebugLogger {
 
   // ── Public API ──────────────────────────────────────────────────────────────
 
+  private formatData(data: unknown): string {
+    if (data === undefined) return '';
+    if (typeof data === 'string') return data;
+    if (data instanceof Error) {
+      return `${data.name}: ${data.message}`;
+    }
+    if (data && typeof data === 'object') {
+      const obj = data as any;
+      if (obj.message) {
+        return `${obj.name || 'Error'}: ${obj.message}`;
+      }
+    }
+    try {
+      return JSON.stringify(data, null, 2);
+    } catch (err) {
+      return String(data);
+    }
+  }
+
   /** General log line (also prints to console) */
   log(tag: string, message: string, data?: unknown): void {
     const ts   = new Date().toISOString();
     const line = `[${ts}] [${tag}] ${message}`;
-    console.log(line);
+    console.log(message);
     this.write(line + '\n');
     if (data !== undefined) {
-      const dump = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-      this.write(dump + '\n');
+      this.write(this.formatData(data) + '\n');
     }
   }
 
@@ -50,11 +68,10 @@ export class DebugLogger {
   warn(message: string, data?: unknown): void {
     const ts   = new Date().toISOString();
     const line = `[${ts}] [WARN] ${message}`;
-    console.warn(line);
+    console.warn(message);
     this.write(line + '\n');
     if (data !== undefined) {
-      const dump = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-      this.write(dump + '\n');
+      this.write(this.formatData(data) + '\n');
     }
   }
 
@@ -64,8 +81,7 @@ export class DebugLogger {
     const line = `[${ts}] [DEBUG] ${message}`;
     this.write(line + '\n');
     if (data !== undefined) {
-      const dump = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-      this.write(dump + '\n');
+      this.write(this.formatData(data) + '\n');
     }
   }
 

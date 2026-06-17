@@ -11,6 +11,7 @@ import { VLLMService } from './src/ai/vllm.service';
 import { OpenRouterService } from './src/ai/openrouter.service';
 import { ScoringEngine } from './src/scoring/scoring.engine';
 import { HealingEngine } from './src/healing/healing.engine';
+import { SemanticValidationGate, VisualValidationGate, SafetyValidator } from './src/healing/validation/safety.validator';
 
 // Import Rules
 import { ObjectNameRule } from './src/scoring/rules/object-name.rule';
@@ -61,8 +62,15 @@ async function bootstrap() {
   
   const scoringEngine = new ScoringEngine(rules);
 
+  // 2b. Instantiate Validation Gates & Safety Validator (SOLID/OOP architecture)
+  const validationGates = [
+    new SemanticValidationGate(0.25),
+    new VisualValidationGate(0.15)
+  ];
+  const safetyValidator = new SafetyValidator(validationGates);
+
   // 3. Instantiate Healer Orchestrator
-  const healingEngine = new HealingEngine(aiProvider, scoringEngine);
+  const healingEngine = new HealingEngine(aiProvider, scoringEngine, safetyValidator);
 
   // 4. Instantiate Runner components
   const candidateFinder = new CandidateFinder();

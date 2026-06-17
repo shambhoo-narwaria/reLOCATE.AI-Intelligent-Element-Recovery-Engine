@@ -53,6 +53,7 @@ flowchart TD
     classDef condition fill:#2d3748,stroke:#f59e0b,stroke-width:2px,color:#f8fafc;
     classDef action fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
     classDef aiAction fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
+    classDef gate fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
 
     Start[Locator Fails] --> Stabilize[Wait for Page to Settle / waitForPageSettle]:::action
     Stabilize --> Scrape[Scrape Interactive & Custom Elements]:::action
@@ -70,11 +71,18 @@ flowchart TD
     MaxScoreCheck -->|Yes| MarginCheck{Is score gap to runner-up >= 5?}:::condition
     
     MarginCheck -->|No| TriggerAI
-    MarginCheck -->|Yes| RuleHeal[Heal instantly using rule-based candidate]:::action
+    MarginCheck -->|Yes| EvaluateCandidates[Sequential Evaluation of Candidates]:::action
     
     TriggerAI --> AISelect[LLM returns selected candidateId, confidence, and reason]:::aiAction
-    AISelect --> TargetStamp[Stamp element with unique monotonic ID]:::action
-    RuleHeal --> TargetStamp
+    AISelect --> AISafety{AI Candidate passes Safety Gates?}:::condition
+    
+    AISafety -->|Yes| TargetStamp[Stamp element with unique monotonic ID]:::action
+    AISafety -->|No| EvaluateCandidates
+    
+    EvaluateCandidates --> LoopSafety{Candidate #1, #2, or #3 passes Safety Gates?}:::condition
+    
+    LoopSafety -->|Yes| TargetStamp
+    LoopSafety -->|No/All 3 Fail| Abort[Abort Healing Process & Throw Error]:::gate
     
     TargetStamp --> Validate{Does candidate pass actionability checks?}:::condition
     
@@ -414,3 +422,4 @@ If the candidate pool is still larger than 70 elements, a lightweight keyword an
 | **`HealingEngine`** | The brains. Orchestrates the decision matrix, filters candidates based on tag structure, runs pre-scoring, determines if LLM is required, and requests AI services. | [`src/healing/healing.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/healing/healing.engine.ts) |
 | **`AI Services`** | Connects to standard APIs (OpenAI, Google Gemini, OpenRouter, vLLM) using strict structured output configurations to select the best candidate. | [`src/ai/`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/ai/) |
 | **`ElementValidator`** | Runs actionability tests (`isVisible`, `isEnabled`, `isEditable`) on healed locators to ensure they are clickable before execution proceeds. | [`src/runner/element-validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/element-validator.ts) |
+| **`SafetyValidator`** & **`ValidationGates`** | Implements the OOP pre-action safety validation layer. Validates candidate text similarity (Semantic) and shape/edge similarity (Visual) to prevent clicking wrong elements. | [`src/healing/validation/safety.validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/healing/validation/safety.validator.ts) |

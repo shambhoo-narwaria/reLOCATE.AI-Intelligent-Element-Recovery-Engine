@@ -6,6 +6,7 @@ import { HealingResult } from '../interfaces/healing-result.interface';
 import { logger } from '../logger/debug-logger';
 import * as fs from 'fs';
 import * as path from 'path';
+import { SafetyValidator } from './validation/safety.validator';
 
 function loadConfig() {
   try {
@@ -29,7 +30,11 @@ export class HealingEngine {
     confidenceScores: [] as number[]
   };
 
-  constructor(public aiProvider: AIProvider, public scoringEngine: ScoringEngine) {}
+  constructor(
+    public aiProvider: AIProvider,
+    public scoringEngine: ScoringEngine,
+    public safetyValidator: SafetyValidator
+  ) {}
 
   async heal(original: OriginalElement, candidates: Candidate[]): Promise<HealingResult> {
     if (!candidates || candidates.length === 0) {
@@ -109,6 +114,11 @@ export class HealingEngine {
     // ── Step 3: Rule-based scoring ────────────────────────────────────────────
     const sortedPool = [...pool].sort((a, b) => a.candidateId - b.candidateId);
     const scoredPool = this.scoringEngine.scoreCandidates(original, sortedPool);
+
+    if (scoredPool.length === 0) {
+      throw new Error('[HealingEngine] Scored candidate pool is empty.');
+    }
+
     const bestMatch  = scoredPool[0];
     const runnerUp   = scoredPool[1];
 
@@ -136,10 +146,13 @@ export class HealingEngine {
 
     const prunedPool = topScoredCandidates.map(item => item.candidate);
 
-    // Determine if AI is needed:
-    // 1. Top score is less than 90
-    // 2. Margin between top match and runner-up is close (difference < 5)
+    // Determine if AI is needed based on initial raw rule scores
     const needsAI = !!original.forceAI || bestMatch.score < 90 || (runnerUp && (bestMatch.score - runnerUp.score) < 5);
+
+    let resolvedCandidate = null;
+    let healingReason = '';
+    let triggeredAI = false;
+    let confidence = 0;
 
     if (needsAI) {
       const isStepTesting = original.stepIndex === 8;
@@ -157,30 +170,60 @@ export class HealingEngine {
           const selectedCandidate = sortedPool.find(c => c.candidateId === aiResult.candidateId);
           
           if (selectedCandidate) {
-            const locator = selectedCandidate.functional.cssSelector;
-            return {
-              healedLocator: locator,
-              confidence: aiResult.confidence,
-              reason: `AI reasoning selected this element. AI Reason: ${aiResult.reason}`,
-              triggeredAI: true,
-              candidateId: selectedCandidate.candidateId
-            };
+            // Validate the AI's selection against safety gates
+            const gateResult = this.safetyValidator.validate(original, selectedCandidate);
+            if (gateResult.passes) {
+              resolvedCandidate = selectedCandidate;
+              healingReason = `AI reasoning selected this element. AI Reason: ${aiResult.reason}`;
+              triggeredAI = true;
+              confidence = aiResult.confidence;
+            } else {
+              logger.warn(`[HealingEngine] ⚠ AI-selected Candidate [ID ${selectedCandidate.candidateId}] ("${selectedCandidate.semantic.accessibleName || 'unlabeled'}") FAILED pre-action safety validation (Failed gates: ${gateResult.failedGates.join(', ')}). Bypassing AI choice.`);
+            }
           }
         } catch (err: any) {
-          // Keep logs clean: print just the message instead of the massive stack trace
-          console.error(`[HealingEngine] ⚠ Error invoking AI reasoning: ${err.message?.split('\n')[0] || err}. Falling back to highest rule-based candidate.`);
+          logger.warn(`[HealingEngine] ⚠ Error invoking AI reasoning: ${err.message?.split('\n')[0] || err}. Falling back to rule-based evaluation.`);
         }
       }
     }
 
-    // Fall back to rule-based best candidate
-    const locator = bestMatch.candidate.functional.cssSelector;
+    // Fallback/Heuristic validation check if AI was not run or failed validation gates
+    if (!resolvedCandidate) {
+      let chosenMatch = null;
+      let fallbackIndex = -1;
+
+      for (let i = 0; i < Math.min(3, scoredPool.length); i++) {
+        const match = scoredPool[i];
+        const gateResult = this.safetyValidator.validate(original, match.candidate);
+        if (gateResult.passes) {
+          chosenMatch = match.candidate;
+          fallbackIndex = i;
+          confidence = match.score / 100;
+          healingReason = `Rule-based scoring selected this element with a score of ${match.score}.`;
+          break;
+        } else {
+          logger.warn(`[HealingEngine] ⚠ Heuristic Candidate #${i + 1} [ID ${match.candidate.candidateId}] ("${match.candidate.semantic.accessibleName || 'unlabeled'}") FAILED pre-action safety validation (Failed gates: ${gateResult.failedGates.join(', ')}).`);
+        }
+      }
+
+      if (!chosenMatch) {
+        logger.warn(`[HealingEngine] Aborting Healing Process: Top 3 heuristic candidates failed pre-action safety validation.`);
+        throw new Error(`[HealingEngine] Healing aborted: Top 3 candidates failed pre-action safety validation (semantic text / visual shape mismatch).`);
+      }
+
+      resolvedCandidate = chosenMatch;
+      if (fallbackIndex > 0) {
+        logger.warn(`[HealingEngine] ⚠ Falling back to Heuristic Candidate #${fallbackIndex + 1} [ID ${resolvedCandidate.candidateId}] due to validation failures on higher ranked candidates.`);
+      }
+    }
+
+    const locator = resolvedCandidate.functional.cssSelector;
     return {
       healedLocator: locator,
-      confidence: bestMatch.score / 100,
-      reason: `Rule-based scoring selected this element with a score of ${bestMatch.score}.`,
-      triggeredAI: false,
-      candidateId: bestMatch.candidate.candidateId
+      confidence: confidence,
+      reason: healingReason,
+      triggeredAI: triggeredAI,
+      candidateId: resolvedCandidate.candidateId
     };
   }
 
@@ -238,4 +281,5 @@ export class HealingEngine {
       averageConfidence: `${avgConfidence.toFixed(1)}%`
     };
   }
+
 }

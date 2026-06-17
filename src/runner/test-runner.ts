@@ -119,7 +119,7 @@ export class TestRunner {
                 await this.waitForPageSettle(page, 15000);
                 continue;
               }
-              console.error(`[TestRunner] Healing process failed on step ${i + 1} attempt ${attempt}:`, healErr);
+              console.error(`[TestRunner] Healing process failed on step ${i + 1} attempt ${attempt}: ${msg}`);
               throw healErr;
             }
 
@@ -224,8 +224,13 @@ export class TestRunner {
       console.log(`\n[TestRunner] Final Session Healing Stats:`);
       console.log(JSON.stringify(this.healingEngine.getStats(), null, 2));
 
-    } catch (error) {
-      console.error(`\n[TestRunner] Test Execution Failed at some step:`, error);
+    } catch (error: any) {
+      const msg = error?.message || String(error);
+      if (msg.includes('[HealingEngine]')) {
+        console.error(`\n[TestRunner] Test Execution Failed: ${msg}`);
+      } else {
+        console.error(`\n[TestRunner] Test Execution Failed at some step:`, error);
+      }
     } finally {
       console.log(`[TestRunner] Closing browser...`);
       await browser.close();

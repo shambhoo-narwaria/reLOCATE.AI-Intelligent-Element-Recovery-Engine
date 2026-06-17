@@ -114,6 +114,7 @@ graph LR
     %% Styling
     classDef rule fill:#1e1b4b,stroke:#818cf8,stroke-width:1px,color:#f8fafc;
     classDef total fill:#1e293b,stroke:#10b981,stroke-width:2px,color:#f8fafc;
+    classDef gate fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
 
     A[Candidate Element] --> R1(ObjectNameRule: Weight 30):::rule
     A --> R2(VisualSimilarityRule: Weight 20):::rule
@@ -121,11 +122,11 @@ graph LR
     A --> R4(AncestorPathRule: Weight 15):::rule
     A --> R5(LabelTextRule: Weight 15):::rule
     A --> R6(ParentContextRule: Weight 10):::rule
-    A --> R7(ClassNameRule: Weight 10):::rule
+    A --> R7(ClassNameRule: Weight 15):::rule
     A --> R8(NearbyTextRule: Weight 5):::rule
     A --> R9(DomStructureRule: Weight 5):::rule
 
-    R1 --> Total[Sum of Weights = Total Candidate Score]:::total
+    R1 --> Total[Sum of Weights = Total Score / max 130]:::total
     R2 --> Total
     R3 --> Total
     R4 --> Total
@@ -134,43 +135,57 @@ graph LR
     R7 --> Total
     R8 --> Total
     R9 --> Total
+
+    Total --> SafetyCheck{Safety Gates Validator}:::gate
+    SafetyCheck -->|Passed| Resolved[Confirm Healing Locator]:::total
+    SafetyCheck -->|Failed| Bypassed[Reject & Try Next Candidate]:::gate
 ```
-#### Detailed Breakdown of the 9 Rules
+##### Detailed Breakdown of the 9-Tier Mathematical Scoring Pipeline
 
-The rules are divided into **Heuristic String & Visual Rules** (which calculate similarity scores based on spatial and semantic dimensions) and **Direct Attribute Matches** (which verify structural alignment and tree geometry).
+The Scoring Engine acts as the mathematical engine of the matching process, separating candidates into structured score coordinates. It computes dynamic alignment coefficients across **Heuristic Lexical & Visual Similarity Models** (evaluating continuous distance metrics) and **Deterministic Tree Topology Equivalence Matchers** (verifying graph geometry constraints).
 
-#### 1. Heuristic String & Visual Rules (Multidimensional Similarity Calculations)
+#### 1. Heuristic Lexical & Visual Similarity Models (Continuous Distance Metrics)
 
 *   **`ObjectNameRule` (Weight: 30)**
-    *   **Mechanism**: Employs the **Normalized Levenshtein Edit Distance Algorithm** to perform cognitive textual alignment, matching candidate accessible names and labels against the original element name.
+    *   **Algorithmic Mechanism**: Employs the **Wagner-Fischer Dynamic Programming Formulation** of the **Normalized Levenshtein Edit Distance Metric**. It computes the optimal alignment of character-level strings between candidate accessible names, inner display copy, and accessibility labels against the original element baseline. It projects lexical similarity onto a continuous $[0.0, 1.0]$ vector space.
+    *   **Role in Matching**: Primary cognitive anchor. It ensures that candidate elements with similar user-facing labels or accessibility annotations receive the highest weight contribution, enabling resilience to structural tag shifts.
 
 *   **`VisualSimilarityRule` (Weight: 20)**
-    *   **Mechanism**: Employs a **Weighted Jaccard Similarity Algorithm on Box-Blurred Edge Maps** to analyze visual shape profiles and verify pixel-level edge contour alignment.
+    *   **Algorithmic Mechanism**: Performs **Weighted Jaccard Set Intersection over Union (IoU)** on **2D Discrete Edge Contours**. The algorithm extracts edge coordinates from the original element and candidate viewport crops, scales them proportionally using dynamic canvas resizing, applies a **2D Box-Blur Convolutional Kernel Filter** to accommodate rendering tolerances, and calculates intersection matrices. 
+    *   **Role in Matching**: Layout and shape alignment verification. It detects physical shape correlation while filtering out layout-transparent wrapper anomalies using strict relative area size penalties.
 
 *   **`AncestorPathRule` (Weight: 15)**
-    *   **Mechanism**: Employs the **Longest Common Subsequence (LCS) Algorithm** to align structural tag trajectories, verifying nested custom components and ancestral DOM hierarchies.
+    *   **Algorithmic Mechanism**: Formulates ancestral tag trajectories as ordered string arrays and applies the **Longest Common Subsequence (LCS) Dynamic Alignment Algorithm**. It calculates the relative structural overlap of custom shadow hosts and ancestor tags, tracing the hierarchy from the outermost wrapper down to the innermost target component.
+    *   **Role in Matching**: Hierarchy affinity protection. It prevents elements outside the target web-component boundaries (e.g. dynamic menus, tables) from matching similar tags in unrelated page regions.
 
 *   **`LabelTextRule` (Weight: 15)**
-    *   **Mechanism**: Employs the **Levenshtein Distance Metric** to compute semantic context correlation between associated form labels and target inputs.
+    *   **Algorithmic Mechanism**: Evaluates the **Levenshtein Distance Ratio** across the **Semantic Coupling Vectors** of associated `<label>` text wrappers, `aria-labelledby` targets, and implicit descriptive blocks.
+    *   **Role in Matching**: Form input resolution. It identifies input boxes, checkboxes, and select dropdowns by verifying the text similarity of their associated label markers.
 
 *   **`ClassNameRule` (Weight: 10)**
-    *   **Mechanism**: Employs the **Jaccard Token Index Similarity Algorithm** to evaluate stylesheet signature tokens, ignoring dynamic framework class hashes.
+    *   **Algorithmic Mechanism**: Implements the **Jaccard Token Index Similarity Coefficient** over class name arrays. It factorizes class strings, strips dynamic framework-generated compilation hashes (e.g., CSS modules, Angular, React dynamic keys), and calculates token-level set similarity.
+    *   **Role in Matching**: Styling signature alignment. It matches stylesheet tokens without failing due to dynamic framework re-compilation hash shifts.
 
 *   **`NearbyTextRule` (Weight: 5)**
-    *   **Mechanism**: Employs **Levenshtein String Distance & Substring Containment** to evaluate spatial textual neighborhood alignments.
+    *   **Algorithmic Mechanism**: Constructs a **Spatial Textual Neighborhood Array** from surrounding DOM siblings and nearby lines, comparing them via **Edit Distance Normalization & Substring Intersect Matrices**.
+    *   **Role in Matching**: Spatial landscape coordinate matching. Uses surrounding textual labels as landmark anchors to locate elements when inline properties are missing.
 
 ---
 
-#### 2. Direct Attribute Matches (Tree Geometry Comparisons)
+#### 2. Deterministic Tree Topology Equivalence Matchers (Graph Geometry Constraints)
 
 *   **`RoleRule` (Weight: 15)**
-    *   **Mechanism**: Employs **Direct String Equality & Set Membership Lookup** to match explicit HTML5 tags and accessibility roles.
+    *   **Algorithmic Mechanism**: Enforces **Deterministic Equality Mappings & Set Inclusion Constraints** comparing explicit HTML5 tags and implicit WAI-ARIA roles.
+    *   **Role in Matching**: Functional type filtering. It blocks incorrect functional matches (e.g. matching an anchor link to a text input field).
 
 *   **`ParentContextRule` (Weight: 10)**
-    *   **Mechanism**: Employs **Direct String Equality Matchers** to align parent node tags and element IDs.
+    *   **Algorithmic Mechanism**: Resolves **Parent Node Identity Homology** using exact string matching on direct parent tag names and ID attributes.
+    *   **Role in Matching**: Local container pinning. Ensures elements wrapped in identical structural cells (e.g. table data nodes, list elements) are kept in alignment.
 
 *   **`DomStructureRule` (Weight: 5)**
-    *   **Mechanism**: Employs a **Numerical Difference Ratio Algorithm** to evaluate DOM tree coordinate depth and relative child indexing.
+    *   **Algorithmic Mechanism**: Evaluates a **Numerical Difference Ratio** comparing absolute DOM depth indexes and parent-child indices:
+        $$\text{Score} = 1.0 - \frac{|\text{OrigIndex} - \text{CandIndex}|}{\max(\text{OrigIndex}, \text{CandIndex})}$$
+    *   **Role in Matching**: Fine-grained tree placement. Distinguishes matching elements in repeating lists or dynamic structural tables using relative sibling indexing coordinates.
 
 ---
 

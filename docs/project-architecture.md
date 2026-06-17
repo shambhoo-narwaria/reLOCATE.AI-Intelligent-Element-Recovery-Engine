@@ -1,12 +1,14 @@
 # RelocateAI: Architecture & Decision Flow Guide
 
-This guide explains the full architecture and decision-making logic of **RelocateAI** in a simple, visual, and easy-to-understand format.
+**RelocateAI** is an intelligent self-healing system for web UI test automation. 
+
+When a test automation script fails to find a web element (a click or text input locator breaks due to layout changes, styling shifts, or dynamic code updates), RelocateAI automatically intercepts the failure, scans the live page, constructs multi-dimensional element fingerprints, and dynamically heals the broken locator in real-time.
 
 ---
 
 ## 1. High-Level Architecture
 
-RelocateAI operates as a **middle-layer orchestrator** between your script and the web browser. When a script requests an action (like a Click or Fill) on a locator that cannot be found, RelocateAI intercepts the failure and initiates the self-healing cycle.
+RelocateAI operates as a **middle-layer orchestrator** between your test script and the web browser. When a script attempts an action on a locator that cannot be found, RelocateAI intercepts the failure and initiates the self-healing cycle.
 
 ```mermaid
 graph TD

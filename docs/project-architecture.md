@@ -25,7 +25,7 @@ graph TD
     E -->|Construct Multidimensional Fingerprints| F[Scoring Engine: Apply 9 Rules]:::engine
     F -->|Calculate Fingerprint Match Scores| G{Decider: Needs AI Reasoning?}:::engine
     G -->|No: High Confidence / Large Gap| H[Apply Best Heuristic Selector]:::engine
-    G -->|Yes: Low Confidence / Close Margin| I[AI Provider: Qwen (vLLM on EC2) / OpenAI / Gemini]:::ai
+    G -->|Yes: Low Confidence / Close Margin| I["AI Provider: Qwen (vLLM on EC2) / OpenAI / Gemini"]:::ai
     I -->|Strict JSON Selection| J[Select Chosen Candidate]:::ai
     H --> K[Stamp data-ai-healed-id Attribute]:::browser
     J --> K

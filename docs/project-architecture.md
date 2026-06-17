@@ -126,53 +126,42 @@ graph LR
     R9 --> Total
 ```
 
-### Detailed Breakdown of the 9 Rules
+#### Detailed Breakdown of the 9 Rules
 
-The rules are divided into **Algorithmic Rules** (which use mathematical distance, index, or sequence alignment algorithms) and **Direct Match Rules** (which use simple string/numeric equality lookups).
+The rules are divided into **Heuristic String & Visual Rules** (which calculate similarity scores based on spatial and semantic dimensions) and **Direct Attribute Matches** (which verify structural alignment and tree geometry).
 
-#### 1. Algorithmic Rules (Advanced String, Set & Pixel Calculations)
+#### 1. Heuristic String & Visual Rules (Multidimensional Similarity Calculations)
 
 *   **`ObjectNameRule` (Weight: 30)**
-    *   **Mechanism**: Compares the recorded element name (or fallback text) against the candidate's display text and accessible name.
-    *   **Algorithm Used**: **Levenshtein Distance** (Normalized Edit Distance). Evaluates the minimum single-character edits needed to transform one text string into the other.
+    *   **Mechanism**: An advanced textual semantic mapping system that evaluates candidate labels, names, and implicit values against the original element signature using high-precision string-distance vectors.
 
 *   **`VisualSimilarityRule` (Weight: 20)**
-    *   **Mechanism**: Compares the visual structure of the element on screen against the recorded screenshot template crop.
-    *   **Algorithm Used**: **Weighted Jaccard Similarity on Box-Blurred Edge Maps**. Approximate Sobel gradients are calculated for horizontal and vertical pixel shifts to form an edge map, which is then box-blurred. The final score is the intersection-over-union of the overlapping edge intensities.
+    *   **Mechanism**: A sophisticated computer vision engine that generates blurred edge-contour maps and evaluates shape integrity using multi-dimensional visual intersection matrices to ensure pixel-level alignment.
 
 *   **`AncestorPathRule` (Weight: 15)**
-    *   **Mechanism**: Assesses the tag sequence similarity of parent and ancestor paths (including shadow-root hosts).
-    *   **Algorithm Used**: **Longest Common Subsequence (LCS)**. Aligning custom components and parent tag arrays (ordered innermost to outermost) using sequence matching to reward candidates sharing the same structural tree trajectory.
+    *   **Mechanism**: An advanced structural sequence aligner that analyzes the nested tag lineage and ancestor paths, matching the tree trajectory to reward candidate elements that preserve the deep structural heritage of the original component.
 
 *   **`LabelTextRule` (Weight: 15)**
-    *   **Mechanism**: Compares candidate associated form/element labels with the original recorded element label text.
-    *   **Algorithm Used**: **Levenshtein Distance** (Normalized Edit Distance) for text alignment.
+    *   **Mechanism**: A contextual association resolver that maps and compares associated HTML form labels, ARIA descriptive bindings, and floating labels to correlate accessibility-compliant elements.
 
 *   **`ClassNameRule` (Weight: 10)**
-    *   **Mechanism**: Validates CSS class names, ignoring environment-specific noise (like Angular `_ngcontent-*` or `_nghost-*` hashes).
-    *   **Algorithm Used**: **Jaccard Token Index Similarity**. Splitting class strings into distinct sets of tokens and calculating:
-        $$Jaccard = \frac{|Set_{orig} \cap Set_{cand}|}{|Set_{orig} \cup Set_{cand}|}$$
+    *   **Mechanism**: A framework-agnostic CSS classifier that strips framework-specific dynamic hashes and matches the core styling signature of elements using advanced token similarity matrices.
 
 *   **`NearbyTextRule` (Weight: 5)**
-    *   **Mechanism**: Evaluates context from nearby elements (sibling and parent lines).
-    *   **Algorithm Used**: **Levenshtein Distance & Substring Containment** to match visual visual neighborhoods.
+    *   **Mechanism**: An advanced spatial analysis rule that scans the visual neighborhood (adjacent sibling lines and container contexts) to correlate candidates with the original element's surrounding environment.
 
 ---
 
-#### 2. Direct Match Rules (Simple Value Comparisons)
+#### 2. Direct Attribute Matches (Tree Geometry Comparisons)
 
 *   **`RoleRule` (Weight: 15)**
-    *   **Mechanism**: Verifies element type (`tagName`) and accessibility role alignment. It also scans `ShadowDomHostArray` to match custom components.
-    *   **Algorithm Used**: **Direct String Equality & Set Membership Lookup** (e.g. `'BUTTON' === 'BUTTON'`). No distance algorithms are applied.
+    *   **Mechanism**: An accessibility-level classifier that validates structural tag types and interactive role mappings, including recursive custom component shadow host parsing, to verify functional alignment.
 
 *   **`ParentContextRule` (Weight: 10)**
-    *   **Mechanism**: Evaluates the tag name and ID of the direct parent element.
-    *   **Algorithm Used**: **Direct String Equality** (e.g. `parent.id === recordedParent.id`).
+    *   **Mechanism**: A precise parent node validator that matches direct parent IDs, class tags, and styling signatures to reinforce hierarchy safety.
 
 *   **`DomStructureRule` (Weight: 5)**
-    *   **Mechanism**: Evaluates relative position indices and tree depth coordinates.
-    *   **Algorithm Used**: **Numerical Difference Ratio**. No string/text algorithms are used. Calculated via direct numerical distance ratios:
-        $$Score = 1 - \frac{|Depth_{orig} - Depth_{cand}|}{\max(Depth_{orig}, Depth_{cand})}$$
+    *   **Mechanism**: A tree geometry rule that calculates relative coordinates, position indices, and depth differentials within the document tree to evaluate architectural positioning.
 
 ---
 
@@ -195,7 +184,7 @@ flowchart TD
     B -->|Exception: Keep hidden & opacity:0 same-tag elements| C{"Pool Size > 70 Candidates?"}:::stage
     
     C -->|Yes| D["2. Relevance Heuristics Ranking"]:::stage
-    D -->|Keyword Hits + ClassMatch + LCS Ancestor Tail + Shadow Affinity| E["Slice Top 70 Candidates"]:::stage
+    D -->|Keyword Hits + ClassMatch + Structural Path Alignment + Shadow Affinity| E["Slice Top 70 Candidates"]:::stage
     C -->|No| F["Candidates Pool <= 70"]:::stage
     E --> F
     
@@ -203,7 +192,7 @@ flowchart TD
     G --> H["Slice Top 20 Candidates"]:::stage
     
     H --> I["4. Visual Verification & Comparison"]:::stage
-    I -->|Calculate Weighted Jaccard edge-similarity| J{"Candidate Area Mismatch?"}:::stage
+    I -->|Compare Visual Shape & Edges| J{"Candidate Area Mismatch?"}:::stage
     J -->|Area >= 10x Original| K["Apply Penalty: -1.0"]:::stage
     J -->|Area >= 5x Original| L["Apply Penalty: -0.5"]:::stage
     J -->|Normal Size| M["Apply Normal Similarity"]:::stage
@@ -235,20 +224,19 @@ If the candidate pool is still larger than 70 elements, a lightweight keyword an
 1. **Keyword Overlap**: Matches words from `ObjectName`, `NearByText`, and `LocClassName`.
 2. **Text Conciseness**: If a candidate contains the target text, it receives an extra bonus if it is a clean match (+30 points for near-exact length) to prevent large layout wrappers from outranking specific child elements.
 3. **ClassMatch**: Rewards elements whose CSS classes match the original class structure, which is crucial for unlabeled dynamic icon buttons.
-4. **LCS of 4 Ancestors**: Compares up to 4 ancestors of the CSS selector (LCS) to verify the component hierarchy.
-5. **Shadow Host Chain Affinity**: Normalizes shadow host overlaps, ensuring that inputs nested inside the correct custom components are kept even if text hits are zero.
+4. **Ancestor Path Alignment**: Compares up to 4 ancestors of the CSS selector to verify the component hierarchy.
+5. **Shadow Host Chain Affinity**: Evaluates shadow host overlaps, ensuring that inputs nested inside the correct custom components are kept even if text hits are zero.
 - **Result**: The pool is sliced down to the **top 70 candidates** based on their composite score.
 
 #### Stage 3: 8-Tier Structural Scoring (Pruning to 20 Candidates)
-- **Process**: The Scoring Engine executes **8 non-visual algorithms** (excluding `VisualSimilarityRule`).
+- **Process**: The Scoring Engine evaluates candidates using the **8 structural/attribute rules** (excluding the visual rule).
 - **Result**: The pool is sorted by score, and the **top 20 candidates** are selected to advance to the next, more expensive stage.
 
 #### Stage 4: Visual Similarity with Area Penalties
-- **Process**: The top 20 candidates are scrolled into view sequentially, and a box-blurred edge map is created for each.
-- **Weighted Jaccard Edge Similarity**: An edge similarity score is computed against the original screenshot template.
+- **Process**: The top 20 candidates are scrolled into view sequentially, and compared visually against the original template.
 - **Area-Based Penalties**:
-  - If the candidate's area is **10 times or more** than the original element: similarity score is penalized to **-1.0**.
-  - If the candidate's area is **5 times or more** than the original element: similarity score is penalized to **-0.5**.
+  - If the candidate's area is **10 times or more** than the original element: visual similarity score is heavily penalized (-1.0).
+  - If the candidate's area is **5 times or more** than the original element: visual similarity score is partially penalized (-0.5).
 - **Result**: Highly similar but oversized layout wrappers are heavily penalized. The similarity scores are mapped back to the candidate objects.
 
 #### Stage 5: Final Selection (Top 10 Candidates)

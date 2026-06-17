@@ -103,7 +103,13 @@ Before deciding to invoke the LLM, the candidates are scored using nine dedicate
 ## 3. Decision Orchestrator
 Location: [`src/healing/healing.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/healing/healing.engine.ts)
 
-The orchestrator receives the scraped candidate pool, applies pre-filters (tag-name fallback for shadow hosts, input type constraints, and role matches), runs the scoring engine, and checks:
+The orchestrator receives the scraped candidate pool, applies pre-filters (tag-name fallback for shadow hosts, input type constraints, and role matches), and runs the scoring engine. Before accepting a candidate, it runs **pre-action safety validation gates**:
+
+* **Semantic Gate**: If the original element has text, the candidate's text similarity must be $\ge 0.25$ or contain a substring overlap.
+* **Visual Gate**: If a screenshot template exists, the candidate's visual similarity must be $\ge 0.15$.
+* **Abortion Pipeline**: The orchestrator evaluates the top 3 candidates sequentially. If all 3 fail the gates, the engine aborts the healing process, throws a validation error, and halts test execution immediately without performing any wrong clicks.
+
+If a candidate passes validation, the orchestrator checks:
 ```typescript
 const needsAI = !!original.forceAI || bestMatch.score < 90 || (runnerUp && (bestMatch.score - runnerUp.score) < 5);
 ```

@@ -136,6 +136,48 @@ graph LR
     R9 --> Total
 ```
 
+### Post-Scoring Safety Gates (The Pre-Action Validation Layer)
+
+Once the scoring engine computes raw candidate scores (or the AI provider selects a target candidate ID), the Orchestrator runs candidate choices through a strict **Pre-Action Validation Layer** before confirming a healed locator.
+
+This safety layer enforces a two-tier gate verification contract, preventing the engine from mismatching and clicking incorrect elements (e.g. clicking "Cancel" instead of "Save") if scores are inflated or dynamic layouts are ambiguous.
+
+```mermaid
+graph TD
+    classDef scored fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
+    classDef gate fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
+    classDef ok fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
+
+    A[Scored Candidates Pool / AI Selected Candidate]:::scored --> B{Semantic Validation Gate}:::gate
+    B -->|Passed / No original text| C{Visual Validation Gate}:::gate
+    B -->|Failed: < 25% similarity & not substring| Fail[Reject Candidate]:::gate
+    
+    C -->|Passed / No screenshot| D[Accept Candidate Healed Locator]:::ok
+    C -->|Failed: < 15% visual score or size anomaly| Fail
+    
+    Fail --> E{Next Candidate Available? < up to 3>}:::scored
+    E -->|Yes| A
+    E -->|No / All top 3 failed| Abort[Abort Self-Healing & Throw Validation Error]:::gate
+```
+
+#### The Validation Gates
+
+1. **Semantic Match Gate**
+   * **Mechanism**: Verifies character-level accessible name overlap using Wagner-Fischer edit distance. 
+   * **Failure Threshold**: Fails candidate if text similarity is **$< 25\%$** (unless one string is a direct substring of the other).
+   * **Bypass**: If the original element has no text baseline coordinates, this gate is automatically bypassed.
+
+2. **Visual Match Gate**
+   * **Mechanism**: Compares cropped canvas edge contours against the original target screenshot using Jaccard edge-similarity mapping.
+   * **Failure Threshold**: Fails candidate if visual edge similarity is **$< 15\%$** when original screenshot templates are present.
+   * **Size Anomaly Protection**: Rejects layout wrappers automatically if similarity scores reflect size penalties (`-1.0` or `-0.5`).
+   * **Bypass**: Bypasses the gate if screenshots are absent or if visual similarity evaluates to exactly `0` (the default/fallback value indicating a visual matching failure).
+
+#### Sequential Fallback & Healing Aborts
+* **AI Safe-check**: If the AI is used, its selection must pass the safety gates. If it fails, it is bypassed, and the engine falls back to heuristic candidates.
+* **Top 3 Candidate Loop**: If the top candidate fails validation, the orchestrator logs a warning and evaluates the next best candidates sequentially (up to the top 3).
+* **Hard Abort Exception**: If all top 3 candidate options fail safety validation gates, the orchestrator halts execution, logs a fatal error, and throws a validation exception to stop the test suite before performing incorrect clicks.
+
 #### Detailed Breakdown of the 9 Rules
 
 The rules are divided into **Heuristic String & Visual Rules** (which calculate similarity scores based on spatial and semantic dimensions) and **Direct Attribute Matches** (which verify structural alignment and tree geometry).
@@ -175,11 +217,67 @@ The rules are divided into **Heuristic String & Visual Rules** (which calculate 
 
 ---
 
-## 4. Element Identity Model (Fingerprinting)
+### 4. Element Identity Model (Fingerprinting)
 
-Unlike traditional automation frameworks that rely strictly on brittle, static CSS selectors or absolute XPath strings (which fail immediately when structural redesigns occur or when dynamic classes are introduced), **RelocateAI** models targets as a **Multi-Dimensional Element Identity Signature (Fingerprint)**.
+Unlike traditional UI automation frameworks that rely strictly on brittle, static CSS selectors or absolute XPath strings—which fail immediately when layout restructures occur or when dynamic CSS-in-JS styling hashes rotate—**RelocateAI** models targets as a **Multi-Dimensional Cognitive Element Identity Signature (Fingerprint)**.
 
-When crawling the DOM and Shadow DOMs, the candidate collection process extracts a comprehensive set of attributes across 8 distinct categories. These categories define the element's unique signature, enabling the engine to compare candidates and accurately resolve matches even when page elements shift.
+This fingerprint is built by recursively crawling the live DOM and traversing shadow boundaries, extracting parameters across **8 distinct categories**. Together, they form a robust, multi-dimensional signature that allows the matching engine to identify the target element even if its tag name, layout location, parent context, or style changes.
+
+```mermaid
+graph TB
+    %% Styling Classes
+    classDef engine fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
+    classDef category fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#e2e8f0;
+    classDef property fill:#0f172a,stroke:#10b981,stroke-dasharray: 5 5,color:#34d399;
+    classDef traversal fill:#1c1917,stroke:#ea580c,stroke-width:2px,color:#fafaf9;
+
+    subgraph Scraper ["1. LIVE DOM & SHADOW DOM RECURSIVE SCRAPER"]
+        DOM[Live HTML Document]:::traversal
+        SR[Shadow Root Traverser]:::traversal
+        DOM --> Traversal[DFS Recursive Scrape & Monotonic ID Stamping]:::traversal
+        SR --> Traversal
+    end
+
+    subgraph Fingerprint ["2. THE COGNITIVE ELEMENT FINGERPRINT (8 MULTIDIMENSIONAL VECTORS)"]
+        direction TB
+
+        Sem["🧠 Semantic Intent Vector"]:::category
+        Sem --> SemProps["• Accessible Name (aria-label > placeholder > text)<br>• Visible Inner Text (collapsed whitespace)<br>• WAI-ARIA Accessibility Roles<br>• Title/Tooltip Attributes"]:::property
+
+        Func["⚙️ Functional Attributes Signature"]:::category
+        Func --> FuncProps["• Custom Web Component Tags & Hosts<br>• QA Target Selectors (data-testid, data-qa, data-cy)<br>• Control Inputs (type, href, alt)<br>• Name & Value Bindings"]:::property
+
+        Behav["⚡ Behavioral State Machine"]:::category
+        Behav --> BehavProps["• Interaction Capabilities (clickable, editable, focusable)<br>• Component States (disabled, expanded, checked)<br>• Primary Interaction Targets (click, fill, select)"]:::property
+
+        Neigh["🗺️ Spatial Landscape Anchor Mappings"]:::category
+        Neigh --> NeighProps["• Directional Text Anchors (Left/Right/Top/Bottom)<br>• Sibling Lines (previous/next text arrays)<br>• Associated Form Label Mappings"]:::property
+
+        Anc["🌳 Structural Ancestry Lineage"]:::category
+        Anc --> AncProps["• Outermost to Innermost Shadow Host Chain<br>• Structural Containers (formName, dialogName)<br>• Landmark Regions & Heading Hierarchies"]:::property
+
+        Geom["📐 Topological Tree Geometry"]:::category
+        Geom --> GeomProps["• Absolute DOM Depth Coordinates<br>• Relative Sibling Indexes & Child Counts<br>• Role-Based Relative Offset Positions"]:::property
+
+        Vis["👁️ Visual Layout Contour Profile"]:::category
+        Vis --> VisProps["• Bounding Box Profiles (width, height)<br>• Computed Styles (font-size, fontWeight, display)<br>• Jaccard Edge-Detection similarity Map"]:::property
+
+        Grid["📊 Grid & Cell Relationships"]:::category
+        Grid --> GridProps["• Column Header Cells (<th> context)<br>• Relative Row & Column Indexes<br>• Table Cell Topology Alignments"]:::property
+    end
+
+    subgraph Synthesizer ["3. COGNITIVE MATCHING ENGINE"]
+        Sync[Fingerprint Compiler]:::engine
+        Weighting[9-Tier Scoring Rules Engine]:::engine
+        Sync -->|Compile Elements into Structured Signatures| Weighting
+    end
+
+    Traversal -->|Assemble Vectors| Fingerprint
+    SemProps & FuncProps & BehavProps & NeighProps & AncProps & GeomProps & VisProps & GridProps --> Sync
+```
+
+### Element Identity Dimensions
+The following table outlines the parameters extracted for each dimension and how they protect the system against brittle UI changes:
 
 | Identity Dimension | Parameters Used for Fingerprinting | Non-Traditional Advantages / Dynamic Safety |
 | :--- | :--- | :--- |
@@ -195,40 +293,15 @@ When crawling the DOM and Shadow DOMs, the candidate collection process extracts
 ### Visual Identity Signature Model
 The diagram below illustrates the hierarchical categories and key-value properties that build the element's identity fingerprint:
 
-```mermaid
-graph TD
-    classDef main fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
-    classDef cat fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#f8fafc;
-    classDef param fill:#2d3748,stroke:#a0aec0,stroke-width:1px,color:#edf2f7;
-
-    Root["Element Identity Fingerprint"]:::main
-    
-    Root --> Sem["Semantic Signature"]:::cat
-    Root --> Func["Functional Signature"]:::cat
-    Root --> Behav["Behavioral Signature"]:::cat
-    Root --> Anc["Ancestor Context"]:::cat
-    Root --> Neigh["Spatial Neighborhood"]:::cat
-    Root --> Struct["DOM Tree Structure"]:::cat
-    Root --> Vis["Visual Signature"]:::cat
-    
-    Sem --> S1["text, role, accessibleName, ariaLabel, title, placeholder"]:::param
-    Func --> F1["tagName, id, name, value, href, inputType, dataTestId, dataQa, dataCy, className, alt"]:::param
-    Behav --> B1["clickable, editable, selectable, focusable, disabled, interactionType, expanded, checked, selected, draggable"]:::param
-    Anc --> A1["parentTag, parentRole, ancestorTagNames, ancestorText, containerText, shadowHostName, formName, dialogName"]:::param
-    Neigh --> N1["previousText, nextText, siblings, nearbyText, nearbyRoles, closestLabel, associatedLabel"]:::param
-    Struct --> St1["domDepth, childCount, siblingCount, containsSvg, containsImage, parentTag, indexInParent"]:::param
-    Vis --> V1["visible, display, boundingWidth, boundingHeight, color, fontSize, fontWeight, zIndex"]:::param
-```
-
 ### Element Fingerprint Schema Template
 The complete JSON blueprint compiled for every element contains the following properties:
 
 ```json
 {
   "semantic": {
-    "text": "Shape",
-    "role": "button",
-    "accessibleName": "Shape",
+    "text": "",
+    "role": "",
+    "accessibleName": "",
     "ariaLabel": "",
     "title": "",
     "placeholder": ""
@@ -262,7 +335,7 @@ The complete JSON blueprint compiled for every element contains the following pr
     "disabled": false,
     "readonly": false,
     "required": false,
-    "interactionType": "click",
+    "interactionType": "",
     "checked": false,
     "selected": false,
     "expanded": false,

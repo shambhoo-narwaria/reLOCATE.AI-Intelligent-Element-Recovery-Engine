@@ -345,7 +345,7 @@ flowchart TD
     C -->|No| F["Candidates Pool <= 70"]:::stage
     E --> F
     
-    F --> G["3. 8-Tier Structural Scoring"]:::stage
+    F --> G["3. Tag/Input Filter & 8-Tier Structural Scoring"]:::stage
     G --> H["Slice Top 20 Candidates"]:::stage
     
     H --> I["4. Visual Verification & Comparison"]:::stage
@@ -387,7 +387,7 @@ If the candidate pool is still larger than 70 elements, a lightweight keyword an
 - **Result**: The pool is sliced down to the **top 70 candidates** based on their composite score.
 
 #### Stage 3: 8-Tier Structural Scoring (Pruning to 20 Candidates)
-- **Process**: The Scoring Engine evaluates candidates using the **8 structural/attribute rules** (excluding the visual rule).
+- **Process**: The runner first restricts the candidate pool using tag-name and input-type filters (supporting shadow host matching for slots). Then, the Scoring Engine evaluates the filtered candidates using the **8 structural/attribute rules** (excluding the visual rule).
 - **Result**: The pool is sorted by score, and the **top 20 candidates** are selected to advance to the next, more expensive stage.
 
 #### Stage 4: Visual Similarity with Area Penalties

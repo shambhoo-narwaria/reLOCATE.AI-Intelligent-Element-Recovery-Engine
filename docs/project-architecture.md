@@ -135,6 +135,44 @@ graph LR
     R8 --> Total
     R9 --> Total
 ```
+#### Detailed Breakdown of the 9 Rules
+
+The rules are divided into **Heuristic String & Visual Rules** (which calculate similarity scores based on spatial and semantic dimensions) and **Direct Attribute Matches** (which verify structural alignment and tree geometry).
+
+#### 1. Heuristic String & Visual Rules (Multidimensional Similarity Calculations)
+
+*   **`ObjectNameRule` (Weight: 30)**
+    *   **Mechanism**: Employs the **Normalized Levenshtein Edit Distance Algorithm** to perform cognitive textual alignment, matching candidate accessible names and labels against the original element name.
+
+*   **`VisualSimilarityRule` (Weight: 20)**
+    *   **Mechanism**: Employs a **Weighted Jaccard Similarity Algorithm on Box-Blurred Edge Maps** to analyze visual shape profiles and verify pixel-level edge contour alignment.
+
+*   **`AncestorPathRule` (Weight: 15)**
+    *   **Mechanism**: Employs the **Longest Common Subsequence (LCS) Algorithm** to align structural tag trajectories, verifying nested custom components and ancestral DOM hierarchies.
+
+*   **`LabelTextRule` (Weight: 15)**
+    *   **Mechanism**: Employs the **Levenshtein Distance Metric** to compute semantic context correlation between associated form labels and target inputs.
+
+*   **`ClassNameRule` (Weight: 10)**
+    *   **Mechanism**: Employs the **Jaccard Token Index Similarity Algorithm** to evaluate stylesheet signature tokens, ignoring dynamic framework class hashes.
+
+*   **`NearbyTextRule` (Weight: 5)**
+    *   **Mechanism**: Employs **Levenshtein String Distance & Substring Containment** to evaluate spatial textual neighborhood alignments.
+
+---
+
+#### 2. Direct Attribute Matches (Tree Geometry Comparisons)
+
+*   **`RoleRule` (Weight: 15)**
+    *   **Mechanism**: Employs **Direct String Equality & Set Membership Lookup** to match explicit HTML5 tags and accessibility roles.
+
+*   **`ParentContextRule` (Weight: 10)**
+    *   **Mechanism**: Employs **Direct String Equality Matchers** to align parent node tags and element IDs.
+
+*   **`DomStructureRule` (Weight: 5)**
+    *   **Mechanism**: Employs a **Numerical Difference Ratio Algorithm** to evaluate DOM tree coordinate depth and relative child indexing.
+
+---
 
 ### Post-Scoring Safety Gates (The Pre-Action Validation Layer)
 
@@ -177,43 +215,6 @@ graph TD
 * **AI Safe-check**: If the AI is used, its selection must pass the safety gates. If it fails, it is bypassed, and the engine falls back to heuristic candidates.
 * **Top 3 Candidate Loop**: If the top candidate fails validation, the orchestrator logs a warning and evaluates the next best candidates sequentially (up to the top 3).
 * **Hard Abort Exception**: If all top 3 candidate options fail safety validation gates, the orchestrator halts execution, logs a fatal error, and throws a validation exception to stop the test suite before performing incorrect clicks.
-
-#### Detailed Breakdown of the 9 Rules
-
-The rules are divided into **Heuristic String & Visual Rules** (which calculate similarity scores based on spatial and semantic dimensions) and **Direct Attribute Matches** (which verify structural alignment and tree geometry).
-
-#### 1. Heuristic String & Visual Rules (Multidimensional Similarity Calculations)
-
-*   **`ObjectNameRule` (Weight: 30)**
-    *   **Mechanism**: Employs the **Normalized Levenshtein Edit Distance Algorithm** to perform cognitive textual alignment, matching candidate accessible names and labels against the original element name.
-
-*   **`VisualSimilarityRule` (Weight: 20)**
-    *   **Mechanism**: Employs a **Weighted Jaccard Similarity Algorithm on Box-Blurred Edge Maps** to analyze visual shape profiles and verify pixel-level edge contour alignment.
-
-*   **`AncestorPathRule` (Weight: 15)**
-    *   **Mechanism**: Employs the **Longest Common Subsequence (LCS) Algorithm** to align structural tag trajectories, verifying nested custom components and ancestral DOM hierarchies.
-
-*   **`LabelTextRule` (Weight: 15)**
-    *   **Mechanism**: Employs the **Levenshtein Distance Metric** to compute semantic context correlation between associated form labels and target inputs.
-
-*   **`ClassNameRule` (Weight: 10)**
-    *   **Mechanism**: Employs the **Jaccard Token Index Similarity Algorithm** to evaluate stylesheet signature tokens, ignoring dynamic framework class hashes.
-
-*   **`NearbyTextRule` (Weight: 5)**
-    *   **Mechanism**: Employs **Levenshtein String Distance & Substring Containment** to evaluate spatial textual neighborhood alignments.
-
----
-
-#### 2. Direct Attribute Matches (Tree Geometry Comparisons)
-
-*   **`RoleRule` (Weight: 15)**
-    *   **Mechanism**: Employs **Direct String Equality & Set Membership Lookup** to match explicit HTML5 tags and accessibility roles.
-
-*   **`ParentContextRule` (Weight: 10)**
-    *   **Mechanism**: Employs **Direct String Equality Matchers** to align parent node tags and element IDs.
-
-*   **`DomStructureRule` (Weight: 5)**
-    *   **Mechanism**: Employs a **Numerical Difference Ratio Algorithm** to evaluate DOM tree coordinate depth and relative child indexing.
 
 ---
 

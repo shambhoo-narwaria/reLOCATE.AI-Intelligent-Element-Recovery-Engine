@@ -114,7 +114,6 @@ graph LR
     %% Styling
     classDef rule fill:#1e1b4b,stroke:#818cf8,stroke-width:1px,color:#f8fafc;
     classDef total fill:#1e293b,stroke:#10b981,stroke-width:2px,color:#f8fafc;
-    classDef gate fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
 
     A[Candidate Element] --> R1(ObjectNameRule: Weight 30):::rule
     A --> R2(VisualSimilarityRule: Weight 20):::rule
@@ -135,10 +134,6 @@ graph LR
     R7 --> Total
     R8 --> Total
     R9 --> Total
-
-    Total --> SafetyCheck{Safety Gates Validator}:::gate
-    SafetyCheck -->|Passed| Resolved[Confirm Healing Locator]:::total
-    SafetyCheck -->|Failed| Bypassed[Reject & Try Next Candidate]:::gate
 ```
 ##### Detailed Breakdown of the 9-Tier Mathematical Scoring Pipeline
 

@@ -187,53 +187,10 @@ The Scoring Engine acts as the mathematical engine of the matching process, sepa
         $$\text{Score} = 1.0 - \frac{|\text{OrigIndex} - \text{CandIndex}|}{\max(\text{OrigIndex}, \text{CandIndex})}$$
     *   **Role in Matching**: Fine-grained tree placement. Distinguishes matching elements in repeating lists or dynamic structural tables using relative sibling indexing coordinates.
 
----
-
-### Post-Scoring Safety Gates (The Pre-Action Validation Layer)
-
-Once the scoring engine computes raw candidate scores (or the AI provider selects a target candidate ID), the Orchestrator runs candidate choices through a strict **Pre-Action Validation Layer** before confirming a healed locator.
-
-This safety layer enforces a two-tier gate verification contract, preventing the engine from mismatching and clicking incorrect elements (e.g. clicking "Cancel" instead of "Save") if scores are inflated or dynamic layouts are ambiguous.
-
-```mermaid
-graph TD
-    classDef scored fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
-    classDef gate fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
-    classDef ok fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
-
-    A[Scored Candidates Pool / AI Selected Candidate]:::scored --> B{Semantic Validation Gate}:::gate
-    B -->|Passed / No original text| C{Visual Validation Gate}:::gate
-    B -->|Failed: < 25% similarity & not substring| Fail[Reject Candidate]:::gate
-    
-    C -->|Passed / No screenshot| D[Accept Candidate Healed Locator]:::ok
-    C -->|Failed: < 15% visual score or size anomaly| Fail
-    
-    Fail --> E{Next Candidate Available? < up to 3>}:::scored
-    E -->|Yes| A
-    E -->|No / All top 3 failed| Abort[Abort Self-Healing & Throw Validation Error]:::gate
-```
-
-#### The Validation Gates
-
-1. **Semantic Match Gate**
-   * **Mechanism**: Verifies character-level accessible name overlap using Wagner-Fischer edit distance. 
-   * **Failure Threshold**: Fails candidate if text similarity is **$< 25\%$** (unless one string is a direct substring of the other).
-   * **Bypass**: If the original element has no text baseline coordinates, this gate is automatically bypassed.
-
-2. **Visual Match Gate**
-   * **Mechanism**: Compares cropped canvas edge contours against the original target screenshot using Jaccard edge-similarity mapping.
-   * **Failure Threshold**: Fails candidate if visual edge similarity is **$< 15\%$** when original screenshot templates are present.
-   * **Size Anomaly Protection**: Rejects layout wrappers automatically if similarity scores reflect size penalties (`-1.0` or `-0.5`).
-   * **Bypass**: Bypasses the gate if screenshots are absent or if visual similarity evaluates to exactly `0` (the default/fallback value indicating a visual matching failure).
-
-#### Sequential Fallback & Healing Aborts
-* **AI Safe-check**: If the AI is used, its selection must pass the safety gates. If it fails, it is bypassed, and the engine falls back to heuristic candidates.
-* **Top 3 Candidate Loop**: If the top candidate fails validation, the orchestrator logs a warning and evaluates the next best candidates sequentially (up to the top 3).
-* **Hard Abort Exception**: If all top 3 candidate options fail safety validation gates, the orchestrator halts execution, logs a fatal error, and throws a validation exception to stop the test suite before performing incorrect clicks.
 
 ---
 
-### 4. Element Identity Model (Fingerprinting)
+## 4. Element Identity Model (Fingerprinting)
 
 Unlike traditional UI automation frameworks that rely strictly on brittle, static CSS selectors or absolute XPath strings—which fail immediately when layout restructures occur or when dynamic CSS-in-JS styling hashes rotate—**RelocateAI** models targets as a **Multi-Dimensional Cognitive Element Identity Signature (Fingerprint)**.
 
@@ -257,28 +214,28 @@ graph TB
     subgraph Fingerprint ["2. THE COGNITIVE ELEMENT FINGERPRINT (8 MULTIDIMENSIONAL VECTORS)"]
         direction TB
 
-        Sem["🧠 Semantic Intent Vector"]:::category
+        Sem["Semantic Intent Vector"]:::category
         Sem --> SemProps["• Accessible Name (aria-label > placeholder > text)<br>• Visible Inner Text (collapsed whitespace)<br>• WAI-ARIA Accessibility Roles<br>• Title/Tooltip Attributes"]:::property
 
-        Func["⚙️ Functional Attributes Signature"]:::category
+        Func["Functional Attributes Signature"]:::category
         Func --> FuncProps["• Custom Web Component Tags & Hosts<br>• QA Target Selectors (data-testid, data-qa, data-cy)<br>• Control Inputs (type, href, alt)<br>• Name & Value Bindings"]:::property
 
-        Behav["⚡ Behavioral State Machine"]:::category
+        Behav["Behavioral State Machine"]:::category
         Behav --> BehavProps["• Interaction Capabilities (clickable, editable, focusable)<br>• Component States (disabled, expanded, checked)<br>• Primary Interaction Targets (click, fill, select)"]:::property
 
-        Neigh["🗺️ Spatial Landscape Anchor Mappings"]:::category
+        Neigh["Spatial Landscape Anchor Mappings"]:::category
         Neigh --> NeighProps["• Directional Text Anchors (Left/Right/Top/Bottom)<br>• Sibling Lines (previous/next text arrays)<br>• Associated Form Label Mappings"]:::property
 
-        Anc["🌳 Structural Ancestry Lineage"]:::category
+        Anc["Structural Ancestry Lineage"]:::category
         Anc --> AncProps["• Outermost to Innermost Shadow Host Chain<br>• Structural Containers (formName, dialogName)<br>• Landmark Regions & Heading Hierarchies"]:::property
 
-        Geom["📐 Topological Tree Geometry"]:::category
+        Geom["Topological Tree Geometry"]:::category
         Geom --> GeomProps["• Absolute DOM Depth Coordinates<br>• Relative Sibling Indexes & Child Counts<br>• Role-Based Relative Offset Positions"]:::property
 
-        Vis["👁️ Visual Layout Contour Profile"]:::category
+        Vis["Visual Layout Contour Profile"]:::category
         Vis --> VisProps["• Bounding Box Profiles (width, height)<br>• Computed Styles (font-size, fontWeight, display)<br>• Jaccard Edge-Detection similarity Map"]:::property
 
-        Grid["📊 Grid & Cell Relationships"]:::category
+        Grid["Grid & Cell Relationships"]:::category
         Grid --> GridProps["• Column Header Cells (<th> context)<br>• Relative Row & Column Indexes<br>• Table Cell Topology Alignments"]:::property
     end
 
@@ -419,7 +376,7 @@ The complete JSON blueprint compiled for every element contains the following pr
 
 ---
 
-## 5. The Candidate Pruning Pipeline (DOM ➔ 10 Candidates)
+## 5. The Candidate Pruning Pipeline (DOM -> 10 Candidates)
 
 To prevent sending massive DOM payloads to LLMs (which is slow, expensive, and leads to target element confusion or model hallucinations), **RelocateAI** runs a highly optimized, multi-tier candidate pruning pipeline. This pipeline converts the entire raw DOM (which can contain hundreds or thousands of elements) down to just the **top 10 potential candidates** for the AI reasoning layer.
 
@@ -501,6 +458,50 @@ If the candidate pool is still larger than 70 elements, a lightweight keyword an
 
 ---
 
+## 7. Post-Scoring Safety Gates (The Pre-Action Validation Layer)
+
+Once the scoring engine computes raw candidate scores (or the AI provider selects a target candidate ID), the Orchestrator runs candidate choices through a strict **Pre-Action Validation Layer** before confirming a healed locator.
+
+This safety layer enforces a two-tier gate verification contract, preventing the engine from mismatching and clicking incorrect elements (e.g. clicking "Cancel" instead of "Save") if scores are inflated or dynamic layouts are ambiguous.
+
+```mermaid
+graph TD
+    classDef scored fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
+    classDef gate fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
+    classDef ok fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
+
+    A[Scored Candidates Pool / AI Selected Candidate]:::scored --> B{Semantic Validation Gate}:::gate
+    B -->|Passed / No original text| C{Visual Validation Gate}:::gate
+    B -->|Failed: < 25% similarity & not substring| Fail[Reject Candidate]:::gate
+    
+    C -->|Passed / No screenshot| D[Accept Candidate Healed Locator]:::ok
+    C -->|Failed: < 15% visual score or size anomaly| Fail
+    
+    Fail --> E{Next Candidate Available? < up to 3>}:::scored
+    E -->|Yes| A
+    E -->|No / All top 3 failed| Abort[Abort Self-Healing & Throw Validation Error]:::gate
+```
+
+### The Validation Gates
+
+1. **Semantic Match Gate**
+   * **Mechanism**: Verifies character-level accessible name overlap using Wagner-Fischer edit distance. 
+   * **Failure Threshold**: Fails candidate if text similarity is **$< 25\%$** (unless one string is a direct substring of the other).
+   * **Bypass**: If the original element has no text baseline coordinates, this gate is automatically bypassed.
+
+2. **Visual Match Gate**
+   * **Mechanism**: Compares cropped canvas edge contours against the original target screenshot using Jaccard edge-similarity mapping.
+   * **Failure Threshold**: Fails candidate if visual edge similarity is **$< 15\%$** when original screenshot templates are present.
+   * **Size Anomaly Protection**: Rejects layout wrappers automatically if similarity scores reflect size penalties (`-1.0` or `-0.5`).
+   * **Bypass**: Bypasses the gate if screenshots are absent or if visual similarity evaluates to exactly `0` (the default/fallback value indicating a visual matching failure).
+
+### Sequential Fallback & Healing Aborts
+* **AI Safe-check**: If the AI is used, its selection must pass the safety gates. If it fails, it is bypassed, and the engine falls back to heuristic candidates.
+* **Top 3 Candidate Loop**: If the top candidate fails validation, the orchestrator logs a warning and evaluates the next best candidates sequentially (up to the top 3).
+* **Hard Abort Exception**: If all top 3 candidate options fail safety validation gates, the orchestrator halts execution, logs a fatal error, and throws a validation exception to stop the test suite before performing incorrect clicks.
+
+---
+
 ## 6. Key Components Glossary
 
 | Component Name | Role in the System | Code Location |
@@ -512,3 +513,5 @@ If the candidate pool is still larger than 70 elements, a lightweight keyword an
 | **`AI Services`** | Connects to standard APIs (OpenAI, Google Gemini, OpenRouter, vLLM) using strict structured output configurations to select the best candidate. | [`src/ai/`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/ai/) |
 | **`ElementValidator`** | Runs actionability tests (`isVisible`, `isEnabled`, `isEditable`) on healed locators to ensure they are clickable before execution proceeds. | [`src/runner/element-validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/element-validator.ts) |
 | **`SafetyValidator`** & **`ValidationGates`** | Implements the OOP pre-action safety validation layer. Validates candidate text similarity (Semantic) and shape/edge similarity (Visual) to prevent clicking wrong elements. | [`src/healing/validation/safety.validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/healing/validation/safety.validator.ts) |
+
+---

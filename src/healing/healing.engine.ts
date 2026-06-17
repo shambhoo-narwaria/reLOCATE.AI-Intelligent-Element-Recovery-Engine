@@ -107,7 +107,7 @@ export class HealingEngine {
         console.log(`\n[HealingEngine] ── FILTER 2b: inputType = "${origInputType}" ──────────────────`);
         console.log(`[HealingEngine]    ${pool.length} candidates survived.`);
       } else {
-        console.warn(`[HealingEngine] ⚠  No candidates match inputType "${origInputType}". Keeping tag-filtered pool.`);
+        console.warn(`[HealingEngine] No candidates match inputType "${origInputType}". Keeping tag-filtered pool.`);
       }
     }
 
@@ -178,11 +178,11 @@ export class HealingEngine {
               triggeredAI = true;
               confidence = aiResult.confidence;
             } else {
-              logger.warn(`[HealingEngine] ⚠ AI-selected Candidate [ID ${selectedCandidate.candidateId}] ("${selectedCandidate.semantic.accessibleName || 'unlabeled'}") FAILED pre-action safety validation (Failed gates: ${gateResult.failedGates.join(', ')}). Bypassing AI choice.`);
+              logger.warn(`[HealingEngine] AI-selected Candidate [ID ${selectedCandidate.candidateId}] ("${selectedCandidate.semantic.accessibleName || 'unlabeled'}") FAILED pre-action safety validation (Failed gates: ${gateResult.failedGates.join(', ')}). Bypassing AI choice.`);
             }
           }
         } catch (err: any) {
-          logger.warn(`[HealingEngine] ⚠ Error invoking AI reasoning: ${err.message?.split('\n')[0] || err}. Falling back to rule-based evaluation.`);
+          logger.warn(`[HealingEngine] Error invoking AI reasoning: ${err.message?.split('\n')[0] || err}. Falling back to rule-based evaluation.`);
         }
       }
     }
@@ -202,7 +202,7 @@ export class HealingEngine {
           healingReason = `Rule-based scoring selected this element with a score of ${match.score}.`;
           break;
         } else {
-          logger.warn(`[HealingEngine] ⚠ Heuristic Candidate #${i + 1} [ID ${match.candidate.candidateId}] ("${match.candidate.semantic.accessibleName || 'unlabeled'}") FAILED pre-action safety validation (Failed gates: ${gateResult.failedGates.join(', ')}).`);
+          logger.warn(`[HealingEngine] Heuristic Candidate #${i + 1} [ID ${match.candidate.candidateId}] ("${match.candidate.semantic.accessibleName || 'unlabeled'}") FAILED pre-action safety validation (Failed gates: ${gateResult.failedGates.join(', ')}).`);
         }
       }
 
@@ -213,7 +213,7 @@ export class HealingEngine {
 
       resolvedCandidate = chosenMatch;
       if (fallbackIndex > 0) {
-        logger.warn(`[HealingEngine] ⚠ Falling back to Heuristic Candidate #${fallbackIndex + 1} [ID ${resolvedCandidate.candidateId}] due to validation failures on higher ranked candidates.`);
+        logger.warn(`[HealingEngine] Falling back to Heuristic Candidate #${fallbackIndex + 1} [ID ${resolvedCandidate.candidateId}] due to validation failures on higher ranked candidates.`);
       }
     }
 

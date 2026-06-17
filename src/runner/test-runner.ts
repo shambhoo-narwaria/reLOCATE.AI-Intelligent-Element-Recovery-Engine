@@ -115,7 +115,7 @@ export class TestRunner {
               const isNavErr = msg.includes('context was destroyed') || msg.includes('navigation') || msg.includes('navigated') || msg.includes('closed') || msg.includes('detached') || msg.includes('stale');
               
               if (attempt === 1 && isNavErr) {
-                console.warn(`[TestRunner] ⚠ Healing process failed due to navigation/context destruction: ${msg}. Waiting for page layout to settle and retrying step ${i + 1} from scratch...`);
+                console.warn(`[TestRunner] Healing process failed due to navigation/context destruction: ${msg}. Waiting for page layout to settle and retrying step ${i + 1} from scratch...`);
                 await this.waitForPageSettle(page, 15000);
                 continue;
               }
@@ -155,7 +155,7 @@ export class TestRunner {
                   const isInterceptedOrTimeout = firstMsg.includes('intercepts pointer events') || firstMsg.includes('pointer-events') || firstMsg.includes('Timeout') || firstClickErr?.name === 'TimeoutError';
 
                   if (isInterceptedOrTimeout) {
-                    console.warn(`[TestRunner] ⚠ Click failed or timed out. Retrying with force:true...`);
+                    console.warn(`[TestRunner] Click failed or timed out. Retrying with force:true...`);
                     await element.click({ force: true, timeout: 8000 });
                     const resolvedTag = await element.evaluate((el) => el.tagName).catch(() => 'unknown');
                     console.log(`[TestRunner] Click succeeded on element of tag name: "${resolvedTag}"`);
@@ -184,7 +184,7 @@ export class TestRunner {
               // If the element became invisible or detached between candidate finding and the actual click,
               // we retry the entire findAndHeal process once because the page layout likely just settled.
               if (attempt === 1 && (msg.includes('not visible') || msg.includes('detached') || msg.includes('stale'))) {
-                console.warn(`[TestRunner] ⚠ Element became invisible or detached during action (e.g. cookie banner closed). Retrying step ${i + 1} from scratch...`);
+                console.warn(`[TestRunner] Element became invisible or detached during action (e.g. cookie banner closed). Retrying step ${i + 1} from scratch...`);
                 await page.waitForTimeout(1500); // Wait for animations to finish
                 continue;
               }
@@ -1105,7 +1105,7 @@ export class TestRunner {
         const isNavErr = msg.includes('context was destroyed') || msg.includes('navigation') || msg.includes('navigated') || msg.includes('closed') || msg.includes('detached') || msg.includes('stale') || msg.includes('Target page, context or browser has been closed');
         
         if (retries > 0 && isNavErr) {
-          console.warn(`[TestRunner] ⚠ findCandidates failed due to navigation/context destruction: ${msg}. Waiting 8s for page layout to settle and retrying (${retries} retries left)...`);
+          console.warn(`[TestRunner] findCandidates failed due to navigation/context destruction: ${msg}. Waiting 8s for page layout to settle and retrying (${retries} retries left)...`);
           await this.waitForPageSettle(page, 8000);
           continue;
         }

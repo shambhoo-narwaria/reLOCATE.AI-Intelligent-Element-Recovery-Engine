@@ -74,9 +74,10 @@ async function bootstrap() {
     elementValidator
   );
 
-  // 5. Detect simulation mode and execute test runner
+  // 5. Detect simulation and usehealing modes and execute test runner
   const isSimulation = process.argv.includes('--simulate');
-  await testRunner.run(isSimulation);
+  const useHealing = process.argv.includes('--usehealing');
+  await testRunner.run(isSimulation, useHealing);
 }
 
 // Run the bootstrap routine

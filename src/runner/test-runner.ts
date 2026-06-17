@@ -10,7 +10,8 @@ import { Candidate } from '../interfaces/candidate.interface';
 import { logger } from '../logger/debug-logger';
 
 export class TestRunner {
-  private testCasePath = path.resolve(__dirname, '../../Testcase/NeuroTestcase.json');
+  private testCasePath = path.resolve(__dirname, '../../Testcase/ZeissTestcase.json');
+  private useHealing = false;
 
   constructor(
     private healingEngine: HealingEngine,
@@ -18,7 +19,8 @@ export class TestRunner {
     private elementValidator: ElementValidator
   ) {}
 
-  async run(isSimulation: boolean) {
+  async run(isSimulation: boolean, useHealing: boolean = false) {
+    this.useHealing = useHealing;
     console.log(`[TestRunner] Starting Playwright Test Execution (Simulation Mode: ${isSimulation})`);
     
     if (!fs.existsSync(this.testCasePath)) {
@@ -104,7 +106,22 @@ export class TestRunner {
           let lastActionErr: any = null;
 
           for (let attempt = 1; attempt <= 2; attempt++) {
-            const result = await this.findAndHeal(page, step, i);
+            let result;
+            try {
+              result = await this.findAndHeal(page, step, i);
+            } catch (healErr: any) {
+              lastActionErr = healErr;
+              const msg = healErr?.message || String(healErr);
+              const isNavErr = msg.includes('context was destroyed') || msg.includes('navigation') || msg.includes('navigated') || msg.includes('closed') || msg.includes('detached') || msg.includes('stale');
+              
+              if (attempt === 1 && isNavErr) {
+                console.warn(`[TestRunner] ⚠ Healing process failed due to navigation/context destruction: ${msg}. Waiting for page layout to settle and retrying step ${i + 1} from scratch...`);
+                await this.waitForPageSettle(page, 15000);
+                continue;
+              }
+              console.error(`[TestRunner] Healing process failed on step ${i + 1} attempt ${attempt}:`, healErr);
+              throw healErr;
+            }
 
             // confidence=0 means the step was auto-skipped (page navigated away)
             if (result.confidence === 0) {
@@ -116,8 +133,16 @@ export class TestRunner {
             const element = result.locator;
 
             try {
+              // Scroll the element to the center of the viewport
+              try {
+                await element.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'center' }));
+                await page.waitForTimeout(200); // Allow scroll to settle
+              } catch (scrollErr) {
+                // Silently ignore scroll errors
+              }
+
               // ── Visual bounding-box highlight & screenshot ─────────────────
-              await this.highlightAndScreenshot(page, element, i, reportRoot);
+              await this.highlightAndScreenshot(page, element, step, i, reportRoot);
 
               const candIdStr = result.candidateId !== undefined ? ` (Candidate ID: ${result.candidateId})` : '';
 
@@ -127,15 +152,13 @@ export class TestRunner {
                   await element.click({ timeout: 8000 });
                 } catch (firstClickErr: any) {
                   const firstMsg = firstClickErr?.message || String(firstClickErr);
-                  const isInterceptedOrTimeout = 
-                    firstMsg.includes('intercepts pointer events') || 
-                    firstMsg.includes('pointer-events') || 
-                    firstMsg.includes('Timeout') || 
-                    firstClickErr?.name === 'TimeoutError';
+                  const isInterceptedOrTimeout = firstMsg.includes('intercepts pointer events') || firstMsg.includes('pointer-events') || firstMsg.includes('Timeout') || firstClickErr?.name === 'TimeoutError';
 
                   if (isInterceptedOrTimeout) {
-                    console.warn(`[TestRunner] ⚠  Click failed or timed out on "${result.newLocator}"${candIdStr} (${firstClickErr?.name || 'Error'}). Retrying with force:true...`);
+                    console.warn(`[TestRunner] ⚠ Click failed or timed out. Retrying with force:true...`);
                     await element.click({ force: true, timeout: 8000 });
+                    const resolvedTag = await element.evaluate((el) => el.tagName).catch(() => 'unknown');
+                    console.log(`[TestRunner] Click succeeded on element of tag name: "${resolvedTag}"`);
                   } else {
                     throw firstClickErr;
                   }
@@ -192,7 +215,7 @@ export class TestRunner {
           }
         }
         
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(3000);
       }
       
       console.log(`\n==================================================`);
@@ -219,9 +242,23 @@ export class TestRunner {
    * captures a full-page screenshot saved inside the 'report' directory,
    * and removes the highlight overlay.
    */
-  private async highlightAndScreenshot(page: Page, locator: Locator, stepIndex: number, reportDir: string): Promise<void> {
+  private async highlightAndScreenshot(page: Page, locator: Locator, step: OriginalElement, stepIndex: number, reportDir: string): Promise<void> {
     const stepNumStr = String(stepIndex + 1).padStart(2, '0');
     const screenshotPath = path.join(reportDir, `step-${stepNumStr}.png`);
+
+    // Decode and save original screenshot template if present in JSON
+    if (step.Screenshot) {
+      const originalPath = path.join(reportDir, `step-${stepNumStr}-original.png`);
+      try {
+        let cleanBase64 = step.Screenshot.trim();
+        if (cleanBase64.startsWith('data:image/')) {
+          cleanBase64 = cleanBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+        }
+        fs.writeFileSync(originalPath, Buffer.from(cleanBase64, 'base64'));
+      } catch (err: any) {
+        console.warn(`[TestRunner] Failed to save original template screenshot for step ${stepIndex + 1}:`, err.message || err);
+      }
+    }
 
     try {
       const box = await locator.boundingBox();
@@ -260,7 +297,6 @@ export class TestRunner {
 
       // Take the screenshot while highlighted
       await page.screenshot({ path: screenshotPath });
-      console.log(`[TestRunner] Captured step screenshot with highlight: ${screenshotPath}`);
 
       // Keep the highlight visible briefly for human/simulation feedback
       await page.waitForTimeout(500);
@@ -282,12 +318,17 @@ export class TestRunner {
   }
 
   private async findAndHeal(page: Page, step: OriginalElement, stepIndex: number): Promise<{ locator: Locator; oldLocator: string; newLocator: string; didHeal: boolean; triggeredAI: boolean; confidence: number; reason?: string; candidateId?: number }> {
+    step.stepIndex = stepIndex;
     const locCss = step.LocCssSelector;
     const locXpath = step.LocXpath;
     const originalLocator = locCss || locXpath || '';
 
+    // Wait for page layout/loading to settle before trying to locate the element
+    logger.debug(`[TestRunner] Waiting for page layout to settle before locating element for step ${stepIndex + 1}...`);
+    await this.waitForPageSettle(page, 15000);
+
     // as the testing purpose break the classical locators on any step
-    const shouldForceAI = [2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 22, 23, 24, 25, 26].includes(stepIndex);
+    const shouldForceAI = [8, 9, 17, 20, 21, 22, 23, 24, 25, 26, 31, 19].includes(stepIndex) || this.useHealing;
 
     // Helper function to try locating the element using original locators
     const tryOriginalLocators = async (timeoutMs: number): Promise<Locator | null> => {
@@ -379,6 +420,10 @@ export class TestRunner {
       logger.debug(`[Simulation] Bypassing original locators for step ${stepIndex + 1} (index ${stepIndex}) "${step.ObjectName}" to force AI healing...`);
       step.forceAI = true;
 
+      // Wait 3000ms before starting healing as requested
+      logger.debug(`[TestRunner] Forced healing mode: waiting 3000ms before starting healing...`);
+      await page.waitForTimeout(3000);
+
       // ── Page stabilization wait for forced AI ─────────────────────────────────────
       logger.debug(`[Simulation] Waiting for page load and stabilization before initializing AI healing...`);
       await this.waitForPageSettle(page, 30000);
@@ -417,7 +462,7 @@ export class TestRunner {
     }
 
     // Locator STILL failed, trigger AI healing!
-    logger.warn(`[TestRunner] Original locators genuinely failed for object "${step.ObjectName}". Initializing healing engine...`);
+    logger.warn(`[TestRunner] Original locator failed for "${step.ObjectName}". Initializing healing...`);
 
     // (Domain mismatch check removed as requested)
     
@@ -433,7 +478,7 @@ export class TestRunner {
     page.on('console', consoleListener);
 
     // Scrape candidates with loading retries
-    let candidates = await this.candidateFinder.findCandidates(page, step.OrigTagName);
+    let candidates = await this.safeFindCandidates(page, step.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : step.OrigTagName);
 
     page.removeListener('console', consoleListener);
 
@@ -497,7 +542,7 @@ export class TestRunner {
       const reason = candidates.length === 0 ? '0 candidates (waiting for skeleton/loading to settle)' : 'page still in loading-state (CSS-in-JS hashes only)';
       console.log(`[TestRunner] ${reason}. Retrying in 2000ms... (${retries} retries left)`);
       await page.waitForTimeout(2000);
-      candidates = await this.candidateFinder.findCandidates(page, step.OrigTagName);
+      candidates = await this.safeFindCandidates(page, step.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : step.OrigTagName);
       candidates = candidates.filter(c => {
         const testId = (c.functional.dataTestId || '').toLowerCase();
         const css    = (c.functional.cssSelector || '').toLowerCase();
@@ -517,7 +562,7 @@ export class TestRunner {
     //      OrigTagName="ZUI-SELECT-V3-17" → pool = all ZUI-SELECT-V3-17 only
     // Safety fallback: if zero same-tag candidates are found (element type was
     // completely redesigned), keep the full pool so healing can still attempt recovery.
-    if (step.OrigTagName) {
+    if (step.OrigTagName && step.OrigTagName.toUpperCase() !== 'SLOT') {
       const origTagUpper = step.OrigTagName.toUpperCase();
       const sameTagCandidates = candidates.filter(c => c.functional.tagName.toUpperCase() === origTagUpper);
       if (sameTagCandidates.length > 0) {
@@ -878,7 +923,12 @@ export class TestRunner {
 
                 if (candW <= 0 || candH <= 0) return { similarity: 0 };
 
-                ctxCand.drawImage(imgCurr, candLeft, candTop, candW, candH, 0, 0, targetW, targetH);
+                const scaledW = candW * scaleOrig;
+                const scaledH = candH * scaleOrig;
+                const dx = (targetW - scaledW) / 2;
+                const dy = (targetH - scaledH) / 2;
+
+                ctxCand.drawImage(imgCurr, candLeft, candTop, candW, candH, dx, dy, scaledW, scaledH);
                 const dataCand = ctxCand.getImageData(0, 0, targetW, targetH).data;
 
                 // Compute candidate edge map and blur it
@@ -1034,6 +1084,31 @@ export class TestRunner {
       reason: healResult.reason,
       candidateId: healResult.candidateId
     };
+  }
+
+  private async safeFindCandidates(page: Page, tagName?: string): Promise<Candidate[]> {
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        if (page.isClosed()) {
+          return [];
+        }
+        return await this.candidateFinder.findCandidates(page, tagName);
+      } catch (err: any) {
+        retries--;
+        const msg = err?.message || String(err);
+        const isNavErr = msg.includes('context was destroyed') || msg.includes('navigation') || msg.includes('navigated') || msg.includes('closed') || msg.includes('detached') || msg.includes('stale') || msg.includes('Target page, context or browser has been closed');
+        
+        if (retries > 0 && isNavErr) {
+          console.warn(`[TestRunner] ⚠ findCandidates failed due to navigation/context destruction: ${msg}. Waiting 8s for page layout to settle and retrying (${retries} retries left)...`);
+          await this.waitForPageSettle(page, 8000);
+          continue;
+        }
+        console.error(`[TestRunner] findCandidates encountered a fatal or unrecoverable error:`, err);
+        throw err;
+      }
+    }
+    return [];
   }
 
   /**

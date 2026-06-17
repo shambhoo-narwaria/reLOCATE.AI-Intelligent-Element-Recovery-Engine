@@ -16,18 +16,29 @@ export class ObjectNameRule implements ScoringRule {
     const origTag = (original.OrigTagName || original.LocTagName || original.tagName || '').toUpperCase().trim();
     const isInput = ['INPUT', 'TEXTAREA'].includes(origTag);
 
-    // For input elements, use original.ObjectName.
-    // For non-input elements, use only LocText || LocTitle || OwnInnerText.
-    const origName   = (isInput ? (original.ObjectName || '') : (original.LocText || original.LocTitle || original.OwnInnerText || '')).toLowerCase().trim();
+    let origName = '';
+    let ruleWeight = this.weight; // Default is 30
+
+    if (isInput) {
+      origName = original.ObjectName || '';
+    } else {
+      origName = original.LocText || original.LocTitle || original.OwnInnerText || '';
+      if (!origName && original.ObjectName) {
+        origName = original.ObjectName;
+        ruleWeight = 5; // Throttle to 5 if non-input falls back to metadata ObjectName
+      }
+    }
+
+    origName = origName.toLowerCase().trim();
+    if (!origName) return 0;
+
     const candName   = candidate.semantic.accessibleName.toLowerCase().trim();
     const candLabel  = candidate.neighborhood.closestLabel.toLowerCase().trim();
     const candText   = candidate.semantic.text.toLowerCase().trim();
     const candNorm   = candidate.functional.normalizedText.toLowerCase().trim();
 
-    if (!origName) return 0;
-
     const scores = [candName, candLabel, candText, candNorm].filter(Boolean).map(s => stringSimilarity(origName, s));
 
-    return Math.max(0, ...scores) * this.weight;
+    return Math.max(0, ...scores) * ruleWeight;
   }
 }

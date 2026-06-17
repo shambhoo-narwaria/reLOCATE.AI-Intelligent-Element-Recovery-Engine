@@ -21,11 +21,11 @@ graph TD
     A[Runner] -->|1. Locate Element| B{Is Element Found?}:::runner
     B -->|Yes| C[Apply Highlight & Take Step Screenshot]:::runner
     B -->|No| D[Stabilize Page State]:::runner
-    D -->|Scrape DOM & Shadow Roots| E[Candidate Finder]:::browser
+    D -->|Scrape Interactive & Custom Elements| E[Candidate Finder]:::browser
     E -->|Construct Multidimensional Fingerprints| F[Scoring Engine: Apply 9 Rules]:::engine
     F -->|Calculate Fingerprint Match Scores| G{Decider: Needs AI Reasoning?}:::engine
     G -->|No: High Confidence / Large Gap| H[Apply Best Heuristic Selector]:::engine
-    G -->|Yes: Low Confidence / Close Margin| I[AI Provider: OpenAI / Gemini / Qwen]:::ai
+    G -->|Yes: Low Confidence / Close Margin| I[AI Provider: Qwen (vLLM on EC2) / OpenAI / Gemini]:::ai
     I -->|Strict JSON Selection| J[Select Chosen Candidate]:::ai
     H --> K[Stamp data-ai-healed-id Attribute]:::browser
     J --> K
@@ -55,7 +55,7 @@ flowchart TD
     classDef aiAction fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
 
     Start[Locator Fails] --> Stabilize[Wait for Page to Settle / waitForPageSettle]:::action
-    Stabilize --> Scrape[Scrape DOM & Shadow Root candidates]:::action
+    Stabilize --> Scrape[Scrape Interactive & Custom Elements]:::action
     Scrape --> Filter[Apply Shadow-internal & skeleton filters]:::action
     
     Filter --> CandidateCheck{Are candidates found?}:::condition
@@ -337,7 +337,7 @@ flowchart TD
     classDef crucial fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
     classDef output fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
 
-    A["Start: Original Element & Entire DOM Scraped"]:::input --> B["1. Tag-Name Hard Filter"]:::stage
+    A["Start: Original Element & Interactive/Custom Elements Scraped"]:::input --> B["1. Tag-Name Hard Filter"]:::stage
     B -->|Exception: Keep hidden & opacity:0 same-tag elements| C{"Pool Size > 70 Candidates?"}:::stage
     
     C -->|Yes| D["2. Relevance Heuristics Ranking"]:::stage
@@ -370,11 +370,12 @@ flowchart TD
 ### Detailed Pipeline Stages
 
 #### Stage 1: Scrape & Tag-Name Filter
-- **Input**: The entire web document and shadow roots.
+- **Input**: The scraped interactive and custom elements, recursively collected from the web document and shadow roots.
 - **Process**: Keeps only the elements that match the original tag name (`OrigTagName`, e.g., `INPUT`, `BUTTON`, or a custom component like `ZUI-SELECT-V3-17`).
 - **Safety Exceptions**: 
   - **Hidden / Opacity 0 Elements**: If an element matches the target tag name, it is kept **even if it is hidden or has opacity: 0** (unlike other elements which are immediately discarded if invisible). This preserves lazy-loaded images, fading modals, or elements temporarily hidden by loading states.
   - **No-Match Fallback**: If zero candidates match the tag name (indicating a total framework/tag redesign), the filter is bypassed entirely to avoid losing the target.
+  - **Slot Exception**: If the target tag is `"SLOT"`, the tag-name hard constraint is bypassed during collection and filtering since slots are non-interactive layout templates. Instead, candidates are filtered by the original shadow host tag names in the healing engine.
 
 #### Stage 2: Relevance Cap (Pruning to 70 Candidates)
 If the candidate pool is still larger than 70 elements, a lightweight keyword and structural matching algorithm ranks and prunes the pool:

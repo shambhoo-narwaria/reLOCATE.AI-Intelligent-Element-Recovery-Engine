@@ -170,19 +170,36 @@ export class CandidateFinder {
       // ── Compute accessible name ───────────────────────────────────────────
       const computeAccessibleName = (el: Element): string => {
         const t = el.tagName.toLowerCase();
-        if (attr(el, 'aria-label')) return attr(el, 'aria-label');
-        if (attr(el, 'placeholder')) return attr(el, 'placeholder');
-        if (attr(el, 'title')) return attr(el, 'title');
-        const lbId = attr(el, 'aria-labelledby');
+        
+        // Resolve inline search highlights or style wrappers (like B, MARK, SPAN) to their parent container text source
+        const INLINE_TAGS = new Set(['b', 'i', 'strong', 'em', 'mark', 'span', 'font', 'slot', 'u', 'code', 'small']);
+        let resolvedEl = el;
+        if (INLINE_TAGS.has(t)) {
+          let cur: Element | null = el.parentElement;
+          while (cur) {
+            const curTag = cur.tagName.toLowerCase();
+            if (curTag.includes('-') || curTag === 'td' || curTag === 'button' || curTag === 'a' || !INLINE_TAGS.has(curTag)) {
+              resolvedEl = cur;
+              break;
+            }
+            cur = cur.parentElement;
+          }
+        }
+        const resolvedTag = resolvedEl.tagName.toLowerCase();
+
+        if (attr(resolvedEl, 'aria-label')) return attr(resolvedEl, 'aria-label');
+        if (attr(resolvedEl, 'placeholder')) return attr(resolvedEl, 'placeholder');
+        if (attr(resolvedEl, 'title')) return attr(resolvedEl, 'title');
+        const lbId = attr(resolvedEl, 'aria-labelledby');
         if (lbId) {
           const lbEl = document.getElementById(lbId);
           if (lbEl) return trimws(getElementText(lbEl));
         }
-        if (['input', 'select', 'textarea'].includes(t)) {
-          const val = (el as HTMLInputElement).value;
+        if (['input', 'select', 'textarea'].includes(resolvedTag)) {
+          const val = (resolvedEl as HTMLInputElement).value;
           if (val && val.trim()) return val.trim();
         }
-        if (attr(el, 'alt')) return attr(el, 'alt');
+        if (attr(resolvedEl, 'alt')) return attr(resolvedEl, 'alt');
 
         // Slot-aware text extraction
         let slotText = '';
@@ -197,12 +214,12 @@ export class CandidateFinder {
           };
 
           const slots: any[] = [];
-          if (t === 'slot') {
-            slots.push(el);
+          if (resolvedTag === 'slot') {
+            slots.push(resolvedEl);
           }
-          slots.push(...Array.from(el.querySelectorAll('slot')));
-          if (el.shadowRoot) {
-            slots.push(...Array.from(el.shadowRoot.querySelectorAll('slot')));
+          slots.push(...Array.from(resolvedEl.querySelectorAll('slot')));
+          if (resolvedEl.shadowRoot) {
+            slots.push(...Array.from(resolvedEl.shadowRoot.querySelectorAll('slot')));
           }
 
           if (slots.length > 0) {
@@ -216,7 +233,7 @@ export class CandidateFinder {
           return slotText.substring(0, 100);
         }
 
-        return trimws(getElementText(el)).substring(0, 100);
+        return trimws(getElementText(resolvedEl)).substring(0, 100);
       };
 
       // ── Resolve aria-labelledby / aria-describedby ────────────────────────
@@ -315,9 +332,23 @@ export class CandidateFinder {
         };
 
         // ── Semantic ─────────────────────────────────────────────────────
+        const INLINE_TAGS = new Set(['b', 'i', 'strong', 'em', 'mark', 'span', 'font', 'slot', 'u', 'code', 'small']);
+        let semanticTextSource = el;
+        if (INLINE_TAGS.has(el.tagName.toLowerCase())) {
+          let cur: Element | null = el.parentElement;
+          while (cur) {
+            const curTag = cur.tagName.toLowerCase();
+            if (curTag.includes('-') || curTag === 'td' || curTag === 'button' || curTag === 'a' || !INLINE_TAGS.has(curTag)) {
+              semanticTextSource = cur;
+              break;
+            }
+            cur = cur.parentElement;
+          }
+        }
+
         const accessibleName = computeAccessibleName(el);
         const semantic: CandidateSemantic = {
-          text: trimws(getElementText(el)).substring(0, 120),
+          text: trimws(getElementText(semanticTextSource)).substring(0, 120),
           role: attr(el, 'role') || (el as any).role || '',
           accessibleName,
           ariaLabel: attr(el, 'aria-label'),

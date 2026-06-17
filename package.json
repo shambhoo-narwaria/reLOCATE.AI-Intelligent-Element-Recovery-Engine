@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "start": "ts-node runner.ts",
-    "simulate": "ts-node runner.ts --simulate"
+    "simulate": "ts-node runner.ts --simulate",
+    "usehealing": "ts-node runner.ts --usehealing"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

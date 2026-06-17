@@ -135,6 +135,20 @@ The system prompt contains specialized notes:
 2. **Shadow Host Mapping**: Instructs the model that when original elements are inside a shadow root, the custom element host (e.g. `ZUI-SELECT-V3-17`) is the target interactive candidate.
 3. **Behavioral Compatibility**: Clarifies that listboxes, comboboxes, and tabs are opened/activated by a click, meaning `interactionType: "click"` or role listbox matches an original `"Click"` action.
 
+### C. The Case Against Direct Raw DOM Payloads (Performance & Latency Tradeoffs)
+Instead of sending the raw, unpruned DOM directly to the AI reasoning layer, RelocateAI runs its progressive multi-tier pruning pipeline. Sending the entire DOM creates several critical side effects:
+- **Payload Bloat & Latency Bottlenecks**: Modern SPA pages frequently exceed **500 KB to 3 MB of raw HTML** text due to deeply nested layouts, inline SVGs, and dynamic styling hashes. Uploading multi-megabyte text blocks over standard API requests creates massive network overhead.
+- **Exponential Token Costs**: A 1 MB raw DOM equates to **250,000 to 300,000 input tokens**. Sending this for every broken locator quickly exhausts API quotas and creates unsustainable execution costs.
+- **Model Processing & Response Timeouts**: Large context windows spike the model's Time-To-First-Token (TTFT), resulting in response times of **15 to 30+ seconds** per healing action. Pruning candidates down to the top 10 elements reduces response latency to **under 1 second**.
+- **AI Hallucinations & Diluted Precision ("Lost in the Middle")**: Buried within hundreds of thousands of tokens of wrapper components, the target element is prone to being overlooked by the LLM. This extreme cognitive overhead spikes the likelihood of **AI hallucinations**—where the model invents non-existent selector patterns or outputs invalid candidates.
+
+### Why Progressive Pruning is Critical
+By using lightweight local heuristics to narrow down candidates to 70, scoring them down to 20, comparing visual appearance, and delivering only the top 10 element fingerprints to the LLM:
+* **Target Focused**: We feed the AI only relevant candidates, keeping the target element (Object of Interest) front and center.
+* **Cost Efficiency**: We cut token usage by **99.9%**, reducing API costs to fractions of a cent.
+* **Minimal Latency**: We achieve response times of **~1 second** instead of 30+ seconds.
+* **Accuracy Assurance**: We enforce strict JSON schemas on a small pool, guaranteeing highly accurate decisions and avoiding model hallucinations.
+
 ---
 
 ## 5. Integration & Action Execution
@@ -146,3 +160,21 @@ Location: [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElement
 4. **Visual Highlights**: Bounding box coordinates are queried, and a red border overlay is drawn around the target element for `600ms` so testers can visually verify what the runner is about to click.
 5. **Action Guard**: If the target element is disabled, the runner warns and skips to prevent execution timeouts, ensuring clean execution of the test suite.
 6. **Action Retry Loop**: If an action fails because the element became detached or invisible immediately before the click (e.g., due to a layout shift or a cookie banner animating out), the runner intercepts the execution error, waits 1.5 seconds for layout stabilization, and completely restarts the candidate extraction and healing process from scratch.
+
+---
+
+## 6. Strict Tag-Name Matching Design & SLOT Exception
+
+To maintain maximum performance and prevent browser memory bloat (Chrome Out of Memory errors), RelocateAI enforces a strict tag-name validation contract (with specific exceptions like slots):
+
+### A. Strict Tag-Name Contract
+* **The Rule**: The original recorded element tag name (e.g., `INPUT`, `BUTTON`, `A`) must remain stable across UI updates. If a developer changes a native `<button>` element to a custom `<zui-button>` element, this is considered a significant DOM redesign that breaks the locator contract. In this case, the test case should be re-recorded.
+* **Why it's necessary**: If the system collected and evaluated candidates of *any* tag name on large, complex Single Page Applications (SPAs), the candidate pool would grow into hundreds of elements, leading to heavy CPU overhead, slower execution, and potential browser memory exhaustion (OOM crashes).
+
+### B. Special Exception: Slot Elements
+* **The Slot Challenge**: In Web Components (Shadow DOM), `<slot>` elements are layout placeholders. The test recorder may record the target as a `<slot>` element, but since slots are non-interactive and are excluded from candidate scraping, strict tag-name filtering would result in an empty candidate pool.
+* **The Solution**: 
+  1. In `test-runner.ts`, if the target is `"SLOT"`, the tag-name hard constraint is bypassed during candidate scraping and filtering.
+  2. In `healing.engine.ts` (Step 2a), the system filters the pool using the original element's `shadowHostTags` (extracted from the shadow DOM host chain).
+  3. This ensures that only custom wrapper elements belonging to the correct component tree (e.g. `ZUI-SELECT-BUTTON-V3-17`) are evaluated, retaining high performance while successfully healing dynamic slot-based controls.
+

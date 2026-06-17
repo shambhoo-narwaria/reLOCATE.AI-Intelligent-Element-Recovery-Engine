@@ -6,7 +6,7 @@
 
 ## Key Features
 
-*   **Rule-Based Pre-Scoring & AI Recovery**: Multi-tier scoring architecture (Semantic Name, Label Text, Aria Role, Contextual Parent, DOM Depth, Sibling proximity) combined with an LLM reasoning layer.
+*   **Multi-Dimensional Element Fingerprinting & AI Recovery**: Models target elements using an advanced 8-dimensional Element Identity Model (capturing Semantics, Functional attributes, Behavioral states, Component tree contexts, Spatial neighborhoods, DOM tree geometry, Visual edge maps, and Grid coordinates) instead of fragile CSS selectors. Integrates a hybrid scoring engine with a structured LLM reasoning layer.
 *   **Plug-and-Play Multi-LLM Support**: Built-in, zero-dependency integration for **OpenAI (GPT-4o)**, **Google Gemini (Gemini 2.5 Flash)**, and EC2-hosted **vLLM (Qwen 2.5)**. Toggle between them instantly using `.env` options.
 *   **Shadow-DOM & Slot Piercing**: Extracts candidates recursively across shadow boundaries and matches container host tags (e.g., matching target tags to `ShadowDomHostArray` tags like `zui-select-v3-17`).
 *   **Dynamic Dropdown / Value Healing**: Special prompt instructions to properly align selectors where the runtime label reflects a changed dynamic selection (e.g., matching `"Today's patients"` to `"All patients"`).
@@ -27,8 +27,8 @@ graph TD
     A[Runner] -->|1. Try Selector| B(DOM Element Found?)
     B -->|Yes| C[Execute Action]
     B -->|No| D[Stabilize Page & Scrape Candidates]
-    D -->|Candidate Finder| E[Filter & Prune Candidates]
-    E -->|Scoring Engine| F[Scoring Rules: Role, Text, Parent, DOM]
+    D -->|Candidate Finder| E[Construct Element Identity Fingerprints]
+    E -->|Scoring Engine| F[Align 9 Scoring Rules & Weightings]
     F -->|Heuristic Evaluation| G{Needs AI Fallback?}
     G -->|No| H[Apply Best Heuristic Selector]
     G -->|Yes| I["Trigger AI Service: OpenAI, Gemini, or VLLM (Qwen)"]

@@ -88,15 +88,15 @@ Before deciding to invoke the LLM, the candidates are scored using nine dedicate
 
 | Rule Component | Weight | Matching Criteria / Logic |
 | :--- | :---: | :--- |
-| **`ObjectNameRule`** | **30** | Computes the maximum similarity (Levenshtein distance) between the original `ObjectName` and the candidate's `accessibleName`, `closestLabel`, or `normalizedText`. |
-| **`LabelTextRule`** | **15** | Matches associated forms or field labels. |
-| **`RoleRule`** | **15** | Matches `tagName` and ARIA `role`. **Shadow Host tag matching bonus**: Grants `80%` of this weight if the candidate's tag matches one of the shadow hosts in the original element's `ShadowDomHostArray`. |
-| **`AncestorPathRule`**| **15** | Calculates LCS (Longest Common Subsequence) path matching on shadow host chains and DOM tag sequences. |
-| **`NearbyTextRule`** | **5**  | Compares sibling texts and layout neighbors to confirm visual neighborhood. |
-| **`ParentContextRule`**| **10** | Scores based on parent tag name and parent element ID alignment. |
-| **`DomStructureRule`** | **5**  | Scores based on DOM nesting depth and relative sibling index. |
-| **`ClassNameRule`** | **10** | Scores CSS class token similarity using Jaccard index (filtering out Angular-specific helper attributes). |
-| **`VisualSimilarityRule`**| **20** | Compares physical element crops against recorded visual templates using Weighted Jaccard edge-similarity. **Strict Layout Penalties**: Applies heavy point reductions (-0.5x for 5x area difference, -1.0x for 10x area difference) to prevent massive layout containers from masquerading as smaller interactive elements. |
+| **`ObjectNameRule`** | **30** | Computes the maximum similarity using the **Normalized Levenshtein Edit Distance Algorithm** between the original `ObjectName` and the candidate's `accessibleName`, `closestLabel`, or `normalizedText`. |
+| **`LabelTextRule`** | **15** | Matches associated forms or field labels using the **Levenshtein Distance Metric**. |
+| **`RoleRule`** | **15** | Matches `tagName` and ARIA `role` via **Direct String Equality Matchers**. **Shadow Host tag matching bonus**: Grants `80%` of this weight if the candidate's tag matches one of the shadow hosts in the original element's `ShadowDomHostArray`. |
+| **`AncestorPathRule`**| **15** | Calculates structural sequence alignment matching using the **Longest Common Subsequence (LCS) Algorithm** on shadow host chains and DOM tag sequences. |
+| **`NearbyTextRule`** | **5**  | Compares sibling texts and layout neighbors using **Levenshtein String Distance** to confirm visual neighborhood. |
+| **`ParentContextRule`**| **10** | Scores based on parent tag name and parent element ID alignment using **Direct String Equality**. |
+| **`DomStructureRule`** | **5**  | Scores based on DOM nesting depth and relative sibling index using a **Numerical Difference Ratio Algorithm**. |
+| **`ClassNameRule`** | **10** | Scores CSS class token similarity using the **Jaccard Token Index Similarity Algorithm**, filtering out framework-specific dynamic styling hashes. |
+| **`VisualSimilarityRule`**| **20** | Compares physical element crops against recorded visual templates using a **Weighted Jaccard Similarity Algorithm on Box-Blurred Edge Maps**. **Strict Layout Penalties**: Applies heavy point reductions (-0.5x for 5x area difference, -1.0x for 10x area difference) to prevent massive layout containers from masquerading as smaller interactive elements. |
 
 ---
 

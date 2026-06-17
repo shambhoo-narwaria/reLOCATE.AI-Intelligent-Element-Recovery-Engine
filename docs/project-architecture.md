@@ -20,8 +20,8 @@ graph TD
     B -->|Yes| C[Apply Highlight & Take Step Screenshot]:::runner
     B -->|No| D[Stabilize Page State]:::runner
     D -->|Scrape DOM & Shadow Roots| E[Candidate Finder]:::browser
-    E -->|Filter Layout Wrappers / Skeletons| F[Scoring Engine: Apply 9 Rules]:::engine
-    F -->|Calculate Candidate Scores| G{Decider: Needs AI Reasoning?}:::engine
+    E -->|Construct Multidimensional Fingerprints| F[Scoring Engine: Apply 9 Rules]:::engine
+    F -->|Calculate Fingerprint Match Scores| G{Decider: Needs AI Reasoning?}:::engine
     G -->|No: High Confidence / Large Gap| H[Apply Best Heuristic Selector]:::engine
     G -->|Yes: Low Confidence / Close Margin| I[AI Provider: OpenAI / Gemini / Qwen]:::ai
     I -->|Strict JSON Selection| J[Select Chosen Candidate]:::ai
@@ -97,7 +97,7 @@ flowchart TD
 Before any LLM call is made, the **Scoring Engine** evaluates every single candidate element against **9 distinct metrics**. Each metric calculates a score (0.0 to 1.0) which is multiplied by the rule's weight.
 
 ### Candidate Pool Pruning (Top 10 Selection)
-The orchestrator progressively filters candidate elements through a series of structural, heuristic, and visual stages to prune a raw DOM pool of hundreds down to the **top 10 candidates** (configurable via `AI_MAX_CANDIDATES` in the configuration) before passing them to the AI Reasoning Layer. This progressive pruning drastically reduces token consumption, cuts down API latency/cost, and prevents model confusion. For a detailed breakdown of the complete pruning pipeline, see [Section 4: The Candidate Pruning Pipeline](#4-the-candidate-pruning-pipeline-dom-to-10-candidates).
+The orchestrator progressively filters candidate elements through a series of structural, heuristic, and visual stages to prune a raw DOM pool of hundreds down to the **top 10 candidates** (configurable via `AI_MAX_CANDIDATES` in the configuration) before passing them to the AI Reasoning Layer. This progressive pruning drastically reduces token consumption, cuts down API latency/cost, and prevents model confusion. For a detailed breakdown of the complete pruning pipeline, see [Section 5: The Candidate Pruning Pipeline](#5-the-candidate-pruning-pipeline-dom-to-10-candidates).
 
 ```mermaid
 graph LR
@@ -133,39 +133,194 @@ The rules are divided into **Heuristic String & Visual Rules** (which calculate 
 #### 1. Heuristic String & Visual Rules (Multidimensional Similarity Calculations)
 
 *   **`ObjectNameRule` (Weight: 30)**
-    *   **Mechanism**: An advanced textual semantic mapping system that evaluates candidate labels, names, and implicit values against the original element signature using high-precision string-distance vectors.
+    *   **Mechanism**: Employs the **Normalized Levenshtein Edit Distance Algorithm** to perform cognitive textual alignment, matching candidate accessible names and labels against the original element name.
 
 *   **`VisualSimilarityRule` (Weight: 20)**
-    *   **Mechanism**: A sophisticated computer vision engine that generates blurred edge-contour maps and evaluates shape integrity using multi-dimensional visual intersection matrices to ensure pixel-level alignment.
+    *   **Mechanism**: Employs a **Weighted Jaccard Similarity Algorithm on Box-Blurred Edge Maps** to analyze visual shape profiles and verify pixel-level edge contour alignment.
 
 *   **`AncestorPathRule` (Weight: 15)**
-    *   **Mechanism**: An advanced structural sequence aligner that analyzes the nested tag lineage and ancestor paths, matching the tree trajectory to reward candidate elements that preserve the deep structural heritage of the original component.
+    *   **Mechanism**: Employs the **Longest Common Subsequence (LCS) Algorithm** to align structural tag trajectories, verifying nested custom components and ancestral DOM hierarchies.
 
 *   **`LabelTextRule` (Weight: 15)**
-    *   **Mechanism**: A contextual association resolver that maps and compares associated HTML form labels, ARIA descriptive bindings, and floating labels to correlate accessibility-compliant elements.
+    *   **Mechanism**: Employs the **Levenshtein Distance Metric** to compute semantic context correlation between associated form labels and target inputs.
 
 *   **`ClassNameRule` (Weight: 10)**
-    *   **Mechanism**: A framework-agnostic CSS classifier that strips framework-specific dynamic hashes and matches the core styling signature of elements using advanced token similarity matrices.
+    *   **Mechanism**: Employs the **Jaccard Token Index Similarity Algorithm** to evaluate stylesheet signature tokens, ignoring dynamic framework class hashes.
 
 *   **`NearbyTextRule` (Weight: 5)**
-    *   **Mechanism**: An advanced spatial analysis rule that scans the visual neighborhood (adjacent sibling lines and container contexts) to correlate candidates with the original element's surrounding environment.
+    *   **Mechanism**: Employs **Levenshtein String Distance & Substring Containment** to evaluate spatial textual neighborhood alignments.
 
 ---
 
 #### 2. Direct Attribute Matches (Tree Geometry Comparisons)
 
 *   **`RoleRule` (Weight: 15)**
-    *   **Mechanism**: An accessibility-level classifier that validates structural tag types and interactive role mappings, including recursive custom component shadow host parsing, to verify functional alignment.
+    *   **Mechanism**: Employs **Direct String Equality & Set Membership Lookup** to match explicit HTML5 tags and accessibility roles.
 
 *   **`ParentContextRule` (Weight: 10)**
-    *   **Mechanism**: A precise parent node validator that matches direct parent IDs, class tags, and styling signatures to reinforce hierarchy safety.
+    *   **Mechanism**: Employs **Direct String Equality Matchers** to align parent node tags and element IDs.
 
 *   **`DomStructureRule` (Weight: 5)**
-    *   **Mechanism**: A tree geometry rule that calculates relative coordinates, position indices, and depth differentials within the document tree to evaluate architectural positioning.
+    *   **Mechanism**: Employs a **Numerical Difference Ratio Algorithm** to evaluate DOM tree coordinate depth and relative child indexing.
 
 ---
 
-## 4. The Candidate Pruning Pipeline (DOM ➔ 10 Candidates)
+## 4. Element Identity Model (Fingerprinting)
+
+Unlike traditional automation frameworks that rely strictly on brittle, static CSS selectors or absolute XPath strings (which fail immediately when structural redesigns occur or when dynamic classes are introduced), **RelocateAI** models targets as a **Multi-Dimensional Element Identity Signature (Fingerprint)**.
+
+When crawling the DOM and Shadow DOMs, the candidate collection process extracts a comprehensive set of attributes across 8 distinct categories. These categories define the element's unique signature, enabling the engine to compare candidates and accurately resolve matches even when page elements shift.
+
+| Identity Dimension | Parameters Used for Fingerprinting | Non-Traditional Advantages / Dynamic Safety |
+| :--- | :--- | :--- |
+| **1. Semantic Identity** | Computed accessible names, explicit & implicit ARIA roles, accessibility labels (`aria-label`, `aria-labelledby`, `aria-describedby`), and user-facing text descriptors (title and placeholder text). | Identifies elements based on user-visible meaning and intent, rendering matches resilient to absolute tag/styling alterations. |
+| **2. Functional Identity** | Tag names (including custom custom element shadow hosts), custom test annotations (`data-testid`, `data-qa`, `data-cy`), input type controls, and reference targets (`href`). | Safely pierces layout wrappers to prioritize exact functional element bindings regardless of external page alterations. |
+| **3. Behavioral Identity** | Focusability, clickability, editability, checkability, states (`disabled`, `readonly`, `checked`, `selected`, `expanded`), and primary interaction types (click/fill/check/select). | Ensures candidates are functionally compatible with the target test operation (e.g. verifying input boxes accept text typing). |
+| **4. Component Tree Context** | Ordered parent-ancestor tag lineages, direct parent identities (IDs, tags), and the nested shadow host chain hierarchy. | Retains boundary affinity for custom component library elements (e.g. input fields nested inside specific table cell components). |
+| **5. Spatial Neighborhood** | Relative siblings, adjacent sibling texts, associated HTML labels, and lines of text in the visual neighborhood. | Uses surrounding page copy as landmark coordinates to locate elements lacking unique inline attributes. |
+| **6. Tree Geometry** | Absolute DOM depth coordinates (crossing shadow roots), child/sibling density counts, and child index offsets. | Resolves structural positions within repeating tables and lists. |
+| **7. Visual Signature** | Layout bounding box dimensions, styling context (font sizes/weights), and visual layout characteristics. | Ensures candidates match the spatial outline and visual appearance of the original element screenshot. |
+| **8. Grid Relationships** | Cell coordinates (row index, column index), table body structures, and column headers (`<th>`). | Matches target cells in dynamic lists using row-column relationships instead of brittle text anchors. |
+
+### Visual Identity Signature Model
+The diagram below illustrates the hierarchical categories and key-value properties that build the element's identity fingerprint:
+
+```mermaid
+graph TD
+    classDef main fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
+    classDef cat fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#f8fafc;
+    classDef param fill:#2d3748,stroke:#a0aec0,stroke-width:1px,color:#edf2f7;
+
+    Root["Element Identity Fingerprint"]:::main
+    
+    Root --> Sem["Semantic Signature"]:::cat
+    Root --> Func["Functional Signature"]:::cat
+    Root --> Behav["Behavioral Signature"]:::cat
+    Root --> Anc["Ancestor Context"]:::cat
+    Root --> Neigh["Spatial Neighborhood"]:::cat
+    Root --> Struct["DOM Tree Structure"]:::cat
+    Root --> Vis["Visual Signature"]:::cat
+    
+    Sem --> S1["text, role, accessibleName, ariaLabel, title, placeholder"]:::param
+    Func --> F1["tagName, id, name, value, href, inputType, dataTestId, dataQa, dataCy, className, alt"]:::param
+    Behav --> B1["clickable, editable, selectable, focusable, disabled, interactionType, expanded, checked, selected, draggable"]:::param
+    Anc --> A1["parentTag, parentRole, ancestorTagNames, ancestorText, containerText, shadowHostName, formName, dialogName"]:::param
+    Neigh --> N1["previousText, nextText, siblings, nearbyText, nearbyRoles, closestLabel, associatedLabel"]:::param
+    Struct --> St1["domDepth, childCount, siblingCount, containsSvg, containsImage, parentTag, indexInParent"]:::param
+    Vis --> V1["visible, display, boundingWidth, boundingHeight, color, fontSize, fontWeight, zIndex"]:::param
+```
+
+### Element Fingerprint Schema Template
+The complete JSON blueprint compiled for every element contains the following properties:
+
+```json
+{
+  "semantic": {
+    "text": "Shape",
+    "role": "button",
+    "accessibleName": "Shape",
+    "ariaLabel": "",
+    "title": "",
+    "placeholder": ""
+  },
+  "functional": {
+    "normalizedText": "",
+    "accessibleName": "",
+    "role": "",
+    "tagName": "",
+    "ariaLabel": "",
+    "ariaDescription": "",
+    "ariaLabelledBy": "",
+    "title": "",
+    "placeholder": "",
+    "name": "",
+    "value": "",
+    "href": "",
+    "inputType": "",
+    "dataTestId": "",
+    "dataQa": "",
+    "dataCy": "",
+    "id": "",
+    "alt": ""
+  },
+  "behavior": {
+    "clickable": true,
+    "editable": false,
+    "selectable": false,
+    "checkable": false,
+    "focusable": true,
+    "disabled": false,
+    "readonly": false,
+    "required": false,
+    "interactionType": "click",
+    "checked": false,
+    "selected": false,
+    "expanded": false,
+    "draggable": false
+  },
+  "ancestorContext": {
+    "parentText": "",
+    "parentRole": "",
+    "ancestorText": [],
+    "ancestorRoles": [],
+    "ancestorTagNames": [],
+    "containerText": "",
+    "containerRole": "",
+    "sectionName": "",
+    "formName": "",
+    "dialogName": "",
+    "iframeName": "",
+    "shadowHostName": ""
+  },
+  "neighborhood": {
+    "previousText": "",
+    "nextText": "",
+    "leftText": "",
+    "rightText": "",
+    "topText": "",
+    "bottomText": "",
+    "siblings": [],
+    "nearbyText": [],
+    "nearbyRoles": [],
+    "nearbyIcons": [],
+    "closestLabel": "",
+    "associatedLabel": ""
+  },
+  "structure": {
+    "domDepth": 0,
+    "childCount": 0,
+    "siblingCount": 0,
+    "containsText": true,
+    "containsSvg": false,
+    "containsImage": false,
+    "containsInput": false,
+    "subtreeTags": [],
+    "parentTag": "",
+    "indexInParent": 0,
+    "positionAmongSameRole": 0
+  },
+  "visual": {
+    "icon": "",
+    "iconType": "",
+    "iconText": "",
+    "visible": true,
+    "display": "",
+    "shape": "",
+    "group": "",
+    "color": "",
+    "fontSize": "",
+    "fontWeight": "",
+    "boundingWidth": 0,
+    "boundingHeight": 0,
+    "relativePosition": "",
+    "zIndex": 0
+  }
+}
+```
+
+---
+
+## 5. The Candidate Pruning Pipeline (DOM ➔ 10 Candidates)
 
 To prevent sending massive DOM payloads to LLMs (which is slow, expensive, and leads to target element confusion or model hallucinations), **RelocateAI** runs a highly optimized, multi-tier candidate pruning pipeline. This pipeline converts the entire raw DOM (which can contain hundreds or thousands of elements) down to just the **top 10 potential candidates** for the AI reasoning layer.
 
@@ -246,7 +401,7 @@ If the candidate pool is still larger than 70 elements, a lightweight keyword an
 
 ---
 
-## 5. Key Components Glossary
+## 6. Key Components Glossary
 
 | Component Name | Role in the System | Code Location |
 | :--- | :--- | :--- |

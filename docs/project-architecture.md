@@ -97,7 +97,7 @@ flowchart TD
 Before any LLM call is made, the **Scoring Engine** evaluates every single candidate element against **9 distinct metrics**. Each metric calculates a score (0.0 to 1.0) which is multiplied by the rule's weight.
 
 ### Candidate Pool Pruning (Top 10 Selection)
-The 9-tier scoring engine acts as a **relevance pre-filter** to prune the large candidate pool (which can contain hundreds of elements). By sorting candidates by their heuristic score, the orchestrator narrows the candidate pool down to the **top 10 candidates** (configurable via `AI_MAX_CANDIDATES` in the `.env` file) before passing them to the AI Reasoning Layer. This drastically reduces token consumption, cuts down API cost/latency, and prevents model confusion.
+The orchestrator progressively filters candidate elements through a series of structural, heuristic, and visual stages to prune a raw DOM pool of hundreds down to the **top 10 candidates** (configurable via `AI_MAX_CANDIDATES` in the configuration) before passing them to the AI Reasoning Layer. This progressive pruning drastically reduces token consumption, cuts down API latency/cost, and prevents model confusion. For a detailed breakdown of the complete pruning pipeline, see [Section 4: The Candidate Pruning Pipeline](#4-the-candidate-pruning-pipeline-dom-to-10-candidates).
 
 ```mermaid
 graph LR
@@ -176,7 +176,89 @@ The rules are divided into **Algorithmic Rules** (which use mathematical distanc
 
 ---
 
-## 4. Key Components Glossary
+## 4. The Candidate Pruning Pipeline (DOM ➔ 10 Candidates)
+
+To prevent sending massive DOM payloads to LLMs (which is slow, expensive, and leads to target element confusion or model hallucinations), **RelocateAI** runs a highly optimized, multi-tier candidate pruning pipeline. This pipeline converts the entire raw DOM (which can contain hundreds or thousands of elements) down to just the **top 10 potential candidates** for the AI reasoning layer.
+
+### Crucial Objective: Retaining the Object of Interest
+The most critical requirement of the pruning pipeline is **never to lose the Object of Interest (the target element)**. If the correct element is pruned at any stage, subsequent AI reasoning cannot recover it. Therefore, the pipeline uses safe fallbacks, lenient filters, and context bonuses to protect the target.
+
+```mermaid
+flowchart TD
+    %% Styling
+    classDef input fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
+    classDef stage fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#f8fafc;
+    classDef crucial fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
+    classDef output fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
+
+    A["Start: Original Element & Entire DOM Scraped"]:::input --> B["1. Tag-Name Hard Filter"]:::stage
+    B -->|Exception: Keep hidden & opacity:0 same-tag elements| C{"Pool Size > 70 Candidates?"}:::stage
+    
+    C -->|Yes| D["2. Relevance Heuristics Ranking"]:::stage
+    D -->|Keyword Hits + ClassMatch + LCS Ancestor Tail + Shadow Affinity| E["Slice Top 70 Candidates"]:::stage
+    C -->|No| F["Candidates Pool <= 70"]:::stage
+    E --> F
+    
+    F --> G["3. 8-Tier Structural Scoring"]:::stage
+    G --> H["Slice Top 20 Candidates"]:::stage
+    
+    H --> I["4. Visual Verification & Comparison"]:::stage
+    I -->|Calculate Weighted Jaccard edge-similarity| J{"Candidate Area Mismatch?"}:::stage
+    J -->|Area >= 10x Original| K["Apply Penalty: -1.0"]:::stage
+    J -->|Area >= 5x Original| L["Apply Penalty: -0.5"]:::stage
+    J -->|Normal Size| M["Apply Normal Similarity"]:::stage
+    
+    K --> N["Map Similarity to Candidates"]:::stage
+    L --> N
+    M --> N
+    
+    N --> O["5. Full 9-Tier Scoring Engine"]:::stage
+    O --> P["Slice Top 10 Candidates"]:::stage
+    P --> Q["End: AI Provider Layer Input"]:::output
+
+    subgraph Crucial Safety Constraint
+        R["CRITICAL PATHWAY: Safe fallback routines keep all candidates if filters yield 0 elements, ensuring the Object of Interest is never permanently pruned."]:::crucial
+    end
+```
+
+### Detailed Pipeline Stages
+
+#### Stage 1: Scrape & Tag-Name Filter
+- **Input**: The entire web document and shadow roots.
+- **Process**: Keeps only the elements that match the original tag name (`OrigTagName`, e.g., `INPUT`, `BUTTON`, or a custom component like `ZUI-SELECT-V3-17`).
+- **Safety Exceptions**: 
+  - **Hidden / Opacity 0 Elements**: If an element matches the target tag name, it is kept **even if it is hidden or has opacity: 0** (unlike other elements which are immediately discarded if invisible). This preserves lazy-loaded images, fading modals, or elements temporarily hidden by loading states.
+  - **No-Match Fallback**: If zero candidates match the tag name (indicating a total framework/tag redesign), the filter is bypassed entirely to avoid losing the target.
+
+#### Stage 2: Relevance Cap (Pruning to 70 Candidates)
+If the candidate pool is still larger than 70 elements, a lightweight keyword and structural matching algorithm ranks and prunes the pool:
+1. **Keyword Overlap**: Matches words from `ObjectName`, `NearByText`, and `LocClassName`.
+2. **Text Conciseness**: If a candidate contains the target text, it receives an extra bonus if it is a clean match (+30 points for near-exact length) to prevent large layout wrappers from outranking specific child elements.
+3. **ClassMatch**: Rewards elements whose CSS classes match the original class structure, which is crucial for unlabeled dynamic icon buttons.
+4. **LCS of 4 Ancestors**: Compares up to 4 ancestors of the CSS selector (LCS) to verify the component hierarchy.
+5. **Shadow Host Chain Affinity**: Normalizes shadow host overlaps, ensuring that inputs nested inside the correct custom components are kept even if text hits are zero.
+- **Result**: The pool is sliced down to the **top 70 candidates** based on their composite score.
+
+#### Stage 3: 8-Tier Structural Scoring (Pruning to 20 Candidates)
+- **Process**: The Scoring Engine executes **8 non-visual algorithms** (excluding `VisualSimilarityRule`).
+- **Result**: The pool is sorted by score, and the **top 20 candidates** are selected to advance to the next, more expensive stage.
+
+#### Stage 4: Visual Similarity with Area Penalties
+- **Process**: The top 20 candidates are scrolled into view sequentially, and a box-blurred edge map is created for each.
+- **Weighted Jaccard Edge Similarity**: An edge similarity score is computed against the original screenshot template.
+- **Area-Based Penalties**:
+  - If the candidate's area is **10 times or more** than the original element: similarity score is penalized to **-1.0**.
+  - If the candidate's area is **5 times or more** than the original element: similarity score is penalized to **-0.5**.
+- **Result**: Highly similar but oversized layout wrappers are heavily penalized. The similarity scores are mapped back to the candidate objects.
+
+#### Stage 5: Final Selection (Top 10 Candidates)
+- **Process**: The Scoring Engine compiles the final scores using all **9 rules** (including the visual similarity score calculated in Stage 4).
+- **Result**: The candidates are sorted, and the **top 10 candidates** are selected (configurable via `AI_MAX_CANDIDATES`).
+- **AI Delivery**: If heuristics are insufficient (margin is low or score is below 90), these final 10 candidates, along with the original element details, are forwarded to the AI provider for strict JSON selection.
+
+---
+
+## 5. Key Components Glossary
 
 | Component Name | Role in the System | Code Location |
 | :--- | :--- | :--- |

@@ -140,7 +140,7 @@ The system prompt contains specialized notes:
 ## 5. Integration & Action Execution
 Location: [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/test-runner.ts)
 
-1. **Page Stabilization**: If an element is missing, the runner pauses to wait for the document load state (`document.readyState === 'complete'`) and network-idle states to complete before scraping.
+1. **Page Stabilization**: If an element is missing, the runner pauses to wait for active loaders/skeletons to hide and DOM mutations to settle (via a MutationObserver stability check) before scraping.
 2. **Domain Protection**: Checks the protocol, hostname, and port of the current page. If the domain changed entirely (a different site), it halts healing to prevent false-positive clicks.
 3. **Attribute Insertion**: When a candidate is scanned, its DOM node is stamped with a unique monotonic ID: `el.setAttribute('data-ai-healed-id', String(uniqueId))`. The `uniqueId` is derived from a persistent monotonic counter on the browser's `window` object (`window.__ai_healing_counter__`). This ensures that every scanned candidate receives a globally unique locator ID across all steps of the test case, even in Single Page Applications (SPAs) where DOM nodes from previous steps remain in memory and could otherwise cause selector collisions. The new locator becomes `[data-ai-healed-id="X"]`.
 4. **Visual Highlights**: Bounding box coordinates are queried, and a red border overlay is drawn around the target element for `600ms` so testers can visually verify what the runner is about to click.

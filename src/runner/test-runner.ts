@@ -1048,15 +1048,6 @@ export class TestRunner {
     }
 
     try {
-      await page.waitForLoadState('networkidle', { timeout: Math.min(timeoutMs, 5000) }).catch(() => {
-        // silent timeout
-      });
-      
-      if (page.isClosed()) {
-        logger.debug(`[TestRunner] Page/browser was closed during wait. Aborting.`);
-        return;
-      }
-
       // Check common spinner/loader selectors
       const loaderSelectors = [
         '[class*="spinner"]',
@@ -1071,7 +1062,7 @@ export class TestRunner {
       
       for (const selector of loaderSelectors) {
         try {
-          if (await page.locator(selector).first().isVisible({ timeout: 100 })) {
+          if (await page.locator(selector).first().isVisible()) {
             logger.debug(`[TestRunner] Detected active loader/skeleton: "${selector}". Waiting for it to hide...`);
             await page.waitForSelector(selector, { state: 'hidden', timeout: timeoutMs });
           }
@@ -1085,9 +1076,46 @@ export class TestRunner {
         return;
       }
 
-      // Final fixed wait for transitions/animations to settle
-      logger.debug(`[TestRunner] Dynamic content settling wait (1.5s)...`);
-      await page.waitForTimeout(1500);
+      // Reactive DOM Stability Check using MutationObserver
+      logger.debug(`[TestRunner] Monitoring DOM stability...`);
+      await page.evaluate(async (maxWait) => {
+        return new Promise<void>((resolve) => {
+          let timeoutId: any;
+          let lastMutationTime = Date.now();
+
+          const observer = new MutationObserver(() => {
+            lastMutationTime = Date.now();
+          });
+
+          // Observe all child updates, attributes, and subtree mutations
+          observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            characterData: true
+          });
+
+          // Poll every 100ms. If no mutations occurred in the last 400ms, the DOM is stable
+          const intervalId = setInterval(() => {
+            if (Date.now() - lastMutationTime >= 400) {
+              cleanup();
+              resolve();
+            }
+          }, 100);
+
+          // Hard fallback limit
+          timeoutId = setTimeout(() => {
+            cleanup();
+            resolve();
+          }, maxWait);
+
+          function cleanup() {
+            observer.disconnect();
+            clearInterval(intervalId);
+            clearTimeout(timeoutId);
+          }
+        });
+      }, 5000); // Capped at 5 seconds maximum wait for stability
 
       // Force layout recalculation
       await page.evaluate(() => {

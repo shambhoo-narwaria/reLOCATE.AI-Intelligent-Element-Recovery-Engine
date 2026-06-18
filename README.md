@@ -9,9 +9,10 @@
 *   **Multi-Dimensional Fingerprinting & AI Recovery**
     *   Models target elements using an advanced **8-dimensional Identity Model** (Semantics, Functional, Behavioral, Ancestry, Spatial, Geometry, Visual Contour, and Grid coordinates) instead of fragile CSS selectors.
     *   Integrates a hybrid scoring engine with a structured LLM reasoning layer.
-*   **Plug-and-Play Multi-LLM Support**
-    *   Built-in, zero-dependency integration for **OpenAI (GPT-4o)**, **Google Gemini (Gemini 2.5 Flash)**, and EC2-hosted **vLLM (Qwen 2.5)**.
-    *   Toggle between them instantly using `.env` options.
+*   **Plug-and-Play Multi-LLM & Self-Hosted Support**
+    *   Designed for strict **Data Safety & Privacy**: Supports **small, self-hosted LLMs** running locally or in private cloud instances (via **vLLM / Qwen 2.5**), ensuring sensitive test execution data remains inside your own infrastructure.
+    *   Also includes zero-dependency cloud integrations for **OpenAI (GPT-4o)** and **Google Gemini (Gemini 2.5 Flash)**.
+    *   Toggle between self-hosted and cloud options instantly via `.env` configuration.
 *   **Shadow-DOM & Slot Piercing**
     *   Extracts candidates recursively across shadow boundaries.
     *   Matches container host tags (e.g., matching target tags to `ShadowDomHostArray` tags like `zui-select-v3-17`).

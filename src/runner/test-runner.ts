@@ -8,10 +8,14 @@ import { ElementValidator } from './element-validator';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
 import { logger } from '../logger/debug-logger';
+import { StatusOverlay } from './status-overlay';
+import { saveOriginalTemplateImage, highlightAndScreenshot, saveBase64Image } from '../utils/visual-utils';
+import { validateOriginalLocatorSemantically } from '../healing/validation/safety.validator';
 
 export class TestRunner {
-  private testCasePath = path.resolve(__dirname, '../../Testcase/ZeissTestcase.json');
+  private testCasePath = path.resolve(__dirname, '../../Testcase/NeuroTestcase.json');
   private useHealing = false;
+  private statusOverlay = new StatusOverlay();
 
   constructor(
     private healingEngine: HealingEngine,
@@ -91,32 +95,23 @@ export class TestRunner {
           console.log(`[TestRunner] Navigating to: ${step.InputData}`);
           await page.goto(step.InputData, { waitUntil: 'load', timeout: 60000 });
           console.log(`[TestRunner] Navigation complete.`);
-
-          // Capture step screenshot in report folder
-          const stepNumStr = String(i + 1).padStart(2, '0');
-          const screenshotPath = path.join(reportRoot, `step-${stepNumStr}.png`);
-          try {
-            await page.screenshot({ path: screenshotPath });
-            console.log(`[TestRunner] Captured step screenshot: ${screenshotPath}`);
-          } catch (err: any) {
-            console.warn(`[TestRunner] Failed to capture screenshot for Navigate step:`, err.message || err);
-          }
         } else if (step.Action === 'Click' || step.Action === 'Enter') {
           let stepSuccess = false;
           let lastActionErr: any = null;
 
-          for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            for (let attempt = 1; attempt <= 2; attempt++) {
             let result;
             try {
               result = await this.findAndHeal(page, step, i);
             } catch (healErr: any) {
               lastActionErr = healErr;
               const msg = healErr?.message || String(healErr);
-              const isNavErr = msg.includes('context was destroyed') || msg.includes('navigation') || msg.includes('navigated') || msg.includes('closed') || msg.includes('detached') || msg.includes('stale');
               
-              if (attempt === 1 && isNavErr) {
-                console.warn(`[TestRunner] Healing process failed due to navigation/context destruction: ${msg}. Waiting for page layout to settle and retrying step ${i + 1} from scratch...`);
+              if (attempt === 1) {
+                console.warn(`[TestRunner] Healing/Validation process failed on attempt 1: ${msg}. Waiting 4s for layout/dynamic contents to load and retrying step ${i + 1} from scratch...`);
                 await this.waitForPageSettle(page, 15000);
+                await page.waitForTimeout(4000);
                 continue;
               }
               console.error(`[TestRunner] Healing process failed on step ${i + 1} attempt ${attempt}: ${msg}`);
@@ -149,7 +144,7 @@ export class TestRunner {
               if (step.Action === 'Click') {
                 console.log(`[TestRunner] Clicking element: "${result.newLocator}"${candIdStr}`);
                 try {
-                  await element.click({ timeout: 8000 });
+                  await element.click({ timeout: 2000 });
                 } catch (firstClickErr: any) {
                   const firstMsg = firstClickErr?.message || String(firstClickErr);
                   const isInterceptedOrTimeout = firstMsg.includes('intercepts pointer events') || firstMsg.includes('pointer-events') || firstMsg.includes('Timeout') || firstClickErr?.name === 'TimeoutError';
@@ -197,6 +192,10 @@ export class TestRunner {
               }
               throw actionErr;
             }
+          }
+
+          } finally {
+            await this.statusOverlay.hide(page);
           }
 
           if (!stepSuccess && lastActionErr) {
@@ -254,72 +253,10 @@ export class TestRunner {
     // Decode and save original screenshot template if present in JSON
     if (step.Screenshot) {
       const originalPath = path.join(reportDir, `step-${stepNumStr}-original.png`);
-      try {
-        let cleanBase64 = step.Screenshot.trim();
-        if (cleanBase64.startsWith('data:image/')) {
-          cleanBase64 = cleanBase64.replace(/^data:image\/[a-z]+;base64,/, '');
-        }
-        fs.writeFileSync(originalPath, Buffer.from(cleanBase64, 'base64'));
-      } catch (err: any) {
-        console.warn(`[TestRunner] Failed to save original template screenshot for step ${stepIndex + 1}:`, err.message || err);
-      }
+      saveBase64Image(originalPath, step.Screenshot);
     }
 
-    try {
-      const box = await locator.boundingBox();
-      if (!box || box.width === 0 || box.height === 0) {
-        // Fallback: take screenshot without highlight
-        await page.screenshot({ path: screenshotPath });
-        return;
-      }
-
-      // Inject a fixed-position overlay div
-      await page.evaluate(({ x, y, width, height }: { x: number; y: number; width: number; height: number }) => {
-        const existing = document.getElementById('__ai-healing-highlight__');
-        if (existing) existing.remove();
-
-        const overlay = document.createElement('div');
-        overlay.id = '__ai-healing-highlight__';
-        overlay.style.cssText = [
-          'position:fixed',
-          `left:${x}px`,
-          `top:${y}px`,
-          `width:${width}px`,
-          `height:${height}px`,
-          'border:3px solid #FF2244',
-          'background:rgba(255,34,68,0.12)',
-          'z-index:2147483647',          // max z-index
-          'pointer-events:none',         // don't intercept clicks
-          'box-sizing:border-box',
-          'border-radius:3px',
-          'transition:opacity 0.15s ease',
-        ].join(';');
-        document.body.appendChild(overlay);
-      }, box);
-
-      // Brief wait to ensure overlay renders
-      await page.waitForTimeout(100);
-
-      // Take the screenshot while highlighted
-      await page.screenshot({ path: screenshotPath });
-
-      // Keep the highlight visible briefly for human/simulation feedback
-      await page.waitForTimeout(500);
-
-      // Always remove before acting
-      await page.evaluate(() => {
-        const overlay = document.getElementById('__ai-healing-highlight__');
-        if (overlay) overlay.remove();
-      });
-    } catch (err: any) {
-      console.warn(`[TestRunner] Highlight/screenshot failed for step ${stepIndex + 1}:`, err.message || err);
-      // Fallback: attempt screenshot anyway
-      try {
-        await page.screenshot({ path: screenshotPath });
-      } catch {
-        // silently ignore screenshot failures
-      }
-    }
+    await highlightAndScreenshot(page, locator, screenshotPath);
   }
 
   private async findAndHeal(page: Page, step: OriginalElement, stepIndex: number): Promise<{ locator: Locator; oldLocator: string; newLocator: string; didHeal: boolean; triggeredAI: boolean; confidence: number; reason?: string; candidateId?: number }> {
@@ -328,12 +265,14 @@ export class TestRunner {
     const locXpath = step.LocXpath;
     const originalLocator = locCss || locXpath || '';
 
+    await this.statusOverlay.show(page, 'LOCATING');
+
     // Wait for page layout/loading to settle before trying to locate the element
     logger.debug(`[TestRunner] Waiting for page layout to settle before locating element for step ${stepIndex + 1}...`);
     await this.waitForPageSettle(page, 15000);
 
     // as the testing purpose break the classical locators on any step
-    const shouldForceAI = [8, 9, 17, 20, 21, 22, 23, 24, 25, 26, 31, 19].includes(stepIndex) || this.useHealing;
+    const shouldForceAI = [12, 13, 14, 15, 16, 17].includes(stepIndex) || this.useHealing;
 
     // Helper function to try locating the element using original locators
     const tryOriginalLocators = async (timeoutMs: number): Promise<Locator | null> => {
@@ -434,9 +373,17 @@ export class TestRunner {
       await this.waitForPageSettle(page, 30000);
     } else {
       el = await tryOriginalLocators(5000);
+      if (el) {
+        const isValid = await validateOriginalLocatorSemantically(el, step);
+        if (!isValid) {
+          logger.warn(`[TestRunner] Original locator matched an element on 1st attempt, but semantic validation failed (text mismatch).`);
+          el = null;
+        }
+      }
     }
     
     if (el) {
+      await this.statusOverlay.show(page, 'INTERACTING');
       return {
         locator: el,
         oldLocator: originalLocator,
@@ -450,12 +397,21 @@ export class TestRunner {
     // Tier 2: Wait 5 seconds and retry (Final attempt before healing)
     if (!shouldForceAI) {
       logger.debug(`[TestRunner] Original locator failed. Waiting 5s before retrying...`);
+      await this.statusOverlay.show(page, 'RETRYING');
       await page.waitForTimeout(5000);
       el = await tryOriginalLocators(5000);
+      if (el) {
+        const isValid = await validateOriginalLocatorSemantically(el, step);
+        if (!isValid) {
+          logger.warn(`[TestRunner] Original locator matched an element on 2nd attempt, but semantic validation failed (text mismatch).`);
+          el = null;
+        }
+      }
     }
     
     if (el) {
       logger.debug(`[TestRunner] Success! Original locator found on 2nd attempt.`);
+      await this.statusOverlay.show(page, 'INTERACTING');
       return {
         locator: el,
         oldLocator: originalLocator,
@@ -470,22 +426,26 @@ export class TestRunner {
     logger.warn(`[TestRunner] Original locator failed for "${step.ObjectName}". Initializing healing...`);
 
     // (Domain mismatch check removed as requested)
-    
-    // Ensure the page is fully loaded before scraping candidates and creating the AI payload
-    logger.debug(`[TestRunner] Ensuring page is fully loaded before creating AI payload...`);
-    await this.waitForPageSettle(page, 30000);
 
-    const consoleListener = (msg: any) => {
-      if (msg.text().includes('[CandidateFinder]')) {
-        logger.debug(msg.text());
-      }
-    };
-    page.on('console', consoleListener);
+    try {
+      await this.statusOverlay.show(page, 'STABILIZE');
 
-    // Scrape candidates with loading retries
-    let candidates = await this.safeFindCandidates(page, step.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : step.OrigTagName);
+      // Ensure the page is fully loaded before scraping candidates and creating the AI payload
+      logger.debug(`[TestRunner] Ensuring page is fully loaded before creating AI payload...`);
+      await this.waitForPageSettle(page, 30000);
 
-    page.removeListener('console', consoleListener);
+      const consoleListener = (msg: any) => {
+        if (msg.text().includes('[CandidateFinder]')) {
+          logger.debug(msg.text());
+        }
+      };
+      page.on('console', consoleListener);
+
+      await this.statusOverlay.show(page, 'SCRAPE');
+      // Scrape candidates with loading retries
+      let candidates = await this.safeFindCandidates(page, step.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : step.OrigTagName);
+
+      page.removeListener('console', consoleListener);
 
     // ── Filter shadow-internal and loading-placeholder elements ──────────────
     // Generic keyword-based heuristic: elements with IDs containing 'slot',
@@ -585,6 +545,7 @@ export class TestRunner {
     // ObjectName + NearByText PLUS a shadow host chain affinity bonus to ensure
     // deeply-nested form controls (e.g. input#raw inside ZUI-TEXTFIELD-V3-17)
     // are never discarded when they live inside the correct shadow component tree.
+    await this.statusOverlay.show(page, 'PRUNE');
     const MAX_CANDIDATES = 70;
     if (candidates.length > MAX_CANDIDATES) {
       const resolvedName = (step.LocText || step.LocTitle || step.OwnInnerText || '').trim();
@@ -710,11 +671,22 @@ export class TestRunner {
       logger.debug(`[TestRunner] Relevance cap applied: kept top ${candidates.length} of ${scored.length} candidates (keywords: [${allKeywords.slice(0, 8).join(', ')}])`);
     }
 
-    const targetName = step.ObjectName || step.accessibleName || 'unknown';
-    logger.debug(`[TestRunner] Extracted ${candidates.length} final candidate elements for object "${targetName}":`);
-    candidates.forEach((c, idx) => {
-      logger.debug(`   - Candidate #${idx + 1} [ID ${c.candidateId}] text="${c.semantic.text?.substring(0,30) || ''}" cls="${c.functional.className || ''}" xpath="${c.functional.cssSelector || ''}"`);
-    });
+    let logCandidates = false;
+    try {
+      const configPath = path.join(process.cwd(), 'config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        logCandidates = config.LOG_CANDIDATES ?? false;
+      }
+    } catch {}
+
+    if (logCandidates) {
+      const targetName = step.ObjectName || step.accessibleName || 'unknown';
+      logger.debug(`[TestRunner] Extracted ${candidates.length} final candidate elements for object "${targetName}":`);
+      candidates.forEach((c, idx) => {
+        logger.debug(`   - Candidate #${idx + 1} [ID ${c.candidateId}] text="${c.semantic.text?.substring(0,30) || ''}" cls="${c.functional.className || ''}" xpath="${c.functional.cssSelector || ''}"`);
+      });
+    }
 
     // ── Visual Verification: calculate screenshot similarity ─────────────────
     if (step.Screenshot && step.ElementViewportRect && Array.isArray(step.ElementViewportRect) && step.ElementViewportRect.length === 4) {
@@ -739,12 +711,35 @@ export class TestRunner {
         const originalScreenshotB64 = step.Screenshot;
         const originalRect = step.ElementViewportRect;
 
+        // 3b. Pre-crop and save original template image to visual-debug folder
+        await saveOriginalTemplateImage(page, originalScreenshotB64, originalRect, stepIndex);
+
         // 4. Sequentially scroll each candidate into view and compare
         for (const c of topCandidates) {
+          const index = topCandidates.indexOf(c) + 1;
+          await this.statusOverlay.show(page, 'VISUAL', { current: index, total: topCandidates.length });
           try {
             // Check if element is visible in DOM using the unbreakable injected ID
-            const locator = page.locator(`[data-ai-healed-id="${c.candidateId}"]`).first();
-            const isVisible = await locator.isVisible();
+            let locator = page.locator(`[data-ai-healed-id="${c.candidateId}"]`).first();
+            let isVisible = await locator.isVisible();
+
+            // Fallback recovery check if element re-rendered and lost the injected custom attribute
+            if (!isVisible && c.functional.cssSelector) {
+              const fallbackLoc = page.locator(c.functional.cssSelector).first();
+              if (await fallbackLoc.count() > 0 && await fallbackLoc.isVisible()) {
+                try {
+                  await fallbackLoc.evaluate((el, id) => {
+                    el.setAttribute('data-ai-healed-id', id);
+                  }, String(c.candidateId));
+                  locator = fallbackLoc;
+                  isVisible = true;
+                  logger.debug(`[TestRunner] Recovered visibility for candidate ${c.candidateId} (${c.functional.tagName}) by re-stamping CSS selector.`);
+                } catch (err: any) {
+                  // Ignore evaluation failure
+                }
+              }
+            }
+
             if (!isVisible) {
               similarities.push({ candidateId: c.candidateId, similarity: 0 });
               continue;
@@ -757,9 +752,6 @@ export class TestRunner {
             } catch (err: any) {
               // Silently ignore scroll failures and attempt visual comparison anyway
             }
-
-            // Take current viewport screenshot
-            const currentScreenshotB64 = await page.screenshot({ type: 'jpeg', quality: 80 }).then(buf => buf.toString('base64'));
 
             // Get updated client rect of candidate in viewport (piercing shadow DOM)
             const currentRect = await locator.evaluate((el) => {
@@ -801,6 +793,11 @@ export class TestRunner {
                 height: rect.height
               };
             }).catch(() => null);
+
+            await this.statusOverlay.show(page, 'VISUAL', { current: index, total: topCandidates.length, candidateRect: currentRect });
+
+            // Take current viewport screenshot
+            const currentScreenshotB64 = await page.screenshot({ type: 'jpeg', quality: 80 }).then(buf => buf.toString('base64'));
 
             // Compare inside page context
             const result = await page.evaluate(async ({ originalB64, currentB64, originalRect, candRect, devicePixelRatio }) => {
@@ -1021,13 +1018,13 @@ export class TestRunner {
         // Save original template (first one has it)
         const firstWithImg = similarities.find((s: any) => s.origImgData);
         if (firstWithImg) {
-          fs.writeFileSync(path.join(debugDir, `original_template.png`), Buffer.from(firstWithImg.origImgData, 'base64'));
+          saveBase64Image(path.join(debugDir, `original_template.png`), firstWithImg.origImgData);
         }
 
         similarities.forEach((s: any) => {
           if (s.candImgData) {
             const fileName = `candidate_${s.candidateId}_score_${s.similarity.toFixed(2)}.png`;
-            fs.writeFileSync(path.join(debugDir, fileName), Buffer.from(s.candImgData, 'base64'));
+            saveBase64Image(path.join(debugDir, fileName), s.candImgData);
           }
         });
 
@@ -1045,8 +1042,11 @@ export class TestRunner {
       });
     }
 
-    // Perform healing
-    const healResult = await this.healingEngine.heal(step, candidates);
+    await this.statusOverlay.show(page, 'SAFETY');
+
+    const healResult = await this.healingEngine.heal(step, candidates, async (phase) => {
+      await this.statusOverlay.show(page, phase);
+    });
     console.log(`[TestRunner] Healing engine successfully resolved locator:`);
     console.log(`  - Old: "${originalLocator}"`);
     console.log(`  - New: "${healResult.healedLocator}"`);
@@ -1056,8 +1056,18 @@ export class TestRunner {
 
     let healedEl: Locator;
     if (healResult.candidateId !== undefined) {
-      // Execute the action using the completely unbreakable injected data ID!
-      healedEl = page.locator(`[data-ai-healed-id="${healResult.candidateId}"]`).first();
+      const idLocator = page.locator(`[data-ai-healed-id="${healResult.candidateId}"]`).first();
+      let isAttached = false;
+      try {
+        isAttached = await idLocator.isVisible({ timeout: 500 });
+      } catch {}
+
+      if (isAttached) {
+        healedEl = idLocator;
+      } else {
+        console.warn(`[TestRunner] Custom attribute [data-ai-healed-id="${healResult.candidateId}"] not visible or detached. Falling back to healed CSS locator: "${healResult.healedLocator}"`);
+        healedEl = page.locator(healResult.healedLocator).first();
+      }
     } else {
       healedEl = page.locator(healResult.healedLocator).first();
     }
@@ -1079,6 +1089,9 @@ export class TestRunner {
       console.warn(`[TestRunner] Healed element "${healResult.healedLocator}" failed actionability validation. Chosen Candidate: ${JSON.stringify(healResult, null, 2)}. Proceeding with action anyway (relying on Playwright's native interaction/scrolling).`);
     }
 
+    await this.statusOverlay.show(page, 'COMPLETE');
+    await page.waitForTimeout(1000).catch(() => {});
+
     return {
       locator: healedEl,
       oldLocator: originalLocator,
@@ -1089,7 +1102,17 @@ export class TestRunner {
       reason: healResult.reason,
       candidateId: healResult.candidateId
     };
+  } catch (err) {
+    try {
+      await this.statusOverlay.show(page, 'FAILED');
+      await page.waitForTimeout(2000).catch(() => {});
+    } catch { /* ignore */ }
+    try {
+      await this.statusOverlay.hide(page);
+    } catch { /* ignore */ }
+    throw err;
   }
+}
 
   private async safeFindCandidates(page: Page, tagName?: string): Promise<Candidate[]> {
     let retries = 3;
@@ -1195,7 +1218,7 @@ export class TestRunner {
             clearTimeout(timeoutId);
           }
         });
-      }, 5000); // Capped at 5 seconds maximum wait for stability
+      }, 4000); // Capped at 4 seconds maximum wait for stability
 
       // Force layout recalculation
       await page.evaluate(() => {
@@ -1212,6 +1235,7 @@ export class TestRunner {
       logger.debug(`[TestRunner] Page stabilization wait encountered an error (ignoring):`, err);
     }
   }
+
 
   private getFilteredCandidates(step: OriginalElement, candidates: Candidate[]): Candidate[] {
     const origTag = (step.OrigTagName || '').toUpperCase().trim();

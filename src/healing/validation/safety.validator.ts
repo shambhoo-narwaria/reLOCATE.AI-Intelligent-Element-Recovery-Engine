@@ -1,3 +1,4 @@
+import { Locator } from 'playwright';
 import { ValidationGate } from '../../interfaces/validation-gate.interface';
 import { OriginalElement } from '../../interfaces/original-element.interface';
 import { Candidate } from '../../interfaces/candidate.interface';
@@ -9,7 +10,7 @@ export class SemanticValidationGate implements ValidationGate {
   constructor(private threshold: number = 0.25) {}
 
   validate(original: OriginalElement, candidate: Candidate): boolean {
-    const origText = (original.LocText || original.ObjectName || original.accessibleName || original.OwnInnerText || original.LocTitle || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const origText = (original.LocText || original.OwnInnerText || original.LocTitle || '').toLowerCase().replace(/\s+/g, ' ').trim();
     const candText = (candidate.semantic.accessibleName || candidate.semantic.text || '').toLowerCase().replace(/\s+/g, ' ').trim();
     
     if (!origText) {
@@ -86,3 +87,69 @@ export class SafetyValidator {
     };
   }
 }
+
+export async function validateOriginalLocatorSemantically(element: Locator, step: OriginalElement): Promise<boolean> {
+  const rawTarget = step.LocText || step.LocTitle || step.OwnInnerText || '';
+  if (!rawTarget.trim()) {
+    logger.debug(`[validateOriginalLocatorSemantically] Bypassing semantic validation: No target text present in step.`);
+    return true;
+  }
+
+  const targetText = rawTarget.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  let textContent = '';
+  let title = '';
+  let placeholder = '';
+  let ariaLabel = '';
+
+  try {
+    textContent = await element.textContent() || '';
+  } catch {}
+  try {
+    title = await element.getAttribute('title') || '';
+  } catch {}
+  try {
+    placeholder = await element.getAttribute('placeholder') || '';
+  } catch {}
+  try {
+    ariaLabel = await element.getAttribute('aria-label') || '';
+  } catch {}
+
+  const properties = [textContent, title, placeholder, ariaLabel].map(val => val.toLowerCase().replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+  let passed = false;
+  let maxSimilarity = 0;
+  let isSubstringMatch = false;
+  let matchedProp = '';
+
+  const threshold = 0.25;
+
+  for (const prop of properties) {
+    const similarity = stringSimilarity(targetText, prop);
+    const isSubstring = prop.includes(targetText) || targetText.includes(prop);
+
+    if (similarity > maxSimilarity) {
+      maxSimilarity = similarity;
+    }
+    if (isSubstring) {
+      isSubstringMatch = true;
+    }
+
+    if (similarity >= threshold || isSubstring) {
+      passed = true;
+      matchedProp = prop;
+    }
+  }
+
+  const similarityPercent = (maxSimilarity * 100).toFixed(1);
+  const thresholdPercent = (threshold * 100).toFixed(0);
+
+  if (!passed) {
+    logger.warn(`[validateOriginalLocatorSemantically] Original locator semantic validation FAILED: Max similarity was only ${similarityPercent}% (Required: ${thresholdPercent}%, SubstringMatch = ${isSubstringMatch}). Target: "${targetText}" vs Available properties: ${JSON.stringify(properties)}`);
+  } else {
+    logger.debug(`[validateOriginalLocatorSemantically] Original locator semantic validation PASSED: matched attribute "${matchedProp}" with ${similarityPercent}% similarity (SubstringMatch = ${isSubstringMatch}). Target: "${targetText}"`);
+  }
+
+  return passed;
+}
+

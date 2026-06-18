@@ -177,6 +177,10 @@ export interface CandidateVisual {
   boundingWidth: number;
   /** Bounding box height in px */
   boundingHeight: number;
+  /** Bounding box left position in viewport px */
+  left?: number;
+  /** Bounding box top position in viewport px */
+  top?: number;
   /** font-weight */
   fontWeight: string;
   /** font-size */

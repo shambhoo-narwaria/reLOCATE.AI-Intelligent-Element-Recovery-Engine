@@ -630,6 +630,8 @@ export class CandidateFinder {
           display,
           boundingWidth: rect.width,
           boundingHeight: rect.height,
+          left: rect.left,
+          top: rect.top,
           fontWeight: '',
           fontSize: '',
         };

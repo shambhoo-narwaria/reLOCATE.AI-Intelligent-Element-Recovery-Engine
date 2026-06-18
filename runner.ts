@@ -23,6 +23,8 @@ import { DomStructureRule } from './src/scoring/rules/dom-structure.rule';
 import { AncestorPathRule } from './src/scoring/rules/ancestor-path.rule';
 import { ClassNameRule } from './src/scoring/rules/class-name.rule';
 import { VisualSimilarityRule } from './src/scoring/rules/visual-similarity.rule';
+import { CssSelectorRule } from './src/scoring/rules/css-selector.rule';
+import { HorizontalProximityRule } from './src/scoring/rules/horizontal-proximity.rule';
 
 // Import Runner components
 import { CandidateFinder } from './src/runner/candidate-finder';
@@ -58,6 +60,8 @@ async function bootstrap() {
     new DomStructureRule(),     // weight  5 – DOM depth & index
     new ClassNameRule(),        // weight 15 – CSS class matching
     new VisualSimilarityRule(), // weight 20 – visual similarity matching
+    new CssSelectorRule(),      // weight 10 – CSS selector path similarity matching
+    new HorizontalProximityRule(), // weight 5 – horizontal proximity tiebreaker matching
   ];
   
   const scoringEngine = new ScoringEngine(rules);

@@ -36,7 +36,11 @@ export class HealingEngine {
     public safetyValidator: SafetyValidator
   ) {}
 
-  async heal(original: OriginalElement, candidates: Candidate[]): Promise<HealingResult> {
+  async heal(
+    original: OriginalElement,
+    candidates: Candidate[],
+    onPhaseChange?: (phase: 'AI' | 'SAFETY') => Promise<void>
+  ): Promise<HealingResult> {
     if (!candidates || candidates.length === 0) {
       throw new Error('No candidate elements found on the current page to perform healing.');
     }
@@ -155,12 +159,14 @@ export class HealingEngine {
     let confidence = 0;
 
     if (needsAI) {
-      const isStepTesting = original.stepIndex === 8;
+      const isStepTesting = original.stepIndex === 4;
       if (config.USE_AI_MODEL === false && !isStepTesting) {
         console.log(`[HealingEngine] AI Reasoning is disabled or bypassed for this step (USE_AI_MODEL=${config.USE_AI_MODEL}, isStepTesting=${isStepTesting}). Falling back directly to highest rule-based candidate.`);
+        if (onPhaseChange) await onPhaseChange('SAFETY');
       } else {
         console.log(`[HealingEngine] Triggering AI Reasoning Layer (Top Score: ${bestMatch.score}, Needs AI: ${needsAI})`);
         this.stats.totalAISelections++;
+        if (onPhaseChange) await onPhaseChange('AI');
         
         try {
           console.log(`[HealingEngine] Pruning candidate pool for AI: ${sortedPool.length} -> ${prunedPool.length} (Max limit: ${maxAiCandidates})`);
@@ -171,6 +177,7 @@ export class HealingEngine {
           
           if (selectedCandidate) {
             // Validate the AI's selection against safety gates
+            if (onPhaseChange) await onPhaseChange('SAFETY');
             const gateResult = this.safetyValidator.validate(original, selectedCandidate);
             if (gateResult.passes) {
               resolvedCandidate = selectedCandidate;
@@ -189,6 +196,7 @@ export class HealingEngine {
 
     // Fallback/Heuristic validation check if AI was not run or failed validation gates
     if (!resolvedCandidate) {
+      if (onPhaseChange) await onPhaseChange('SAFETY');
       let chosenMatch = null;
       let fallbackIndex = -1;
 

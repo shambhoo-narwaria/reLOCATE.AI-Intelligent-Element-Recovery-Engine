@@ -1,13 +1,13 @@
-# RelocateAI: Detailed Technical Working & Mechanics
+# reLOCATE.AI: Detailed Technical Working & Mechanics
 
-This document provides a deep dive into the inner workings, algorithms, and modules of **RelocateAI**. It covers candidate collection, pre-scoring mechanics, the LLM reasoning layers, and the runtime integration pattern.
+This document provides a deep dive into the inner workings, algorithms, and modules of **reLOCATE.AI**. It covers candidate collection, pre-scoring mechanics, the LLM reasoning layers, and the runtime integration pattern.
 
 ---
 
 ## 📁 Project Directory Structure
 
 ```
-RelocateAI/
+reLOCATE.AI/
 ├── runner.ts                     # Application entry point & service bootstrap
 ├── package.json                  # Dependencies & start scripts
 ├── .env                          # Local environment settings (keys & active AI config)
@@ -69,7 +69,7 @@ Standard `.textContent` can pull in thousands of characters of polluted parent t
 
 ### C. `display: contents` and Visibility Filters
 Elements with `display: contents` do not generate a layout box themselves, yielding a bounding rectangle of `0x0` dimensions, which causes normal visibility filters to treat them as hidden.
-RelocateAI resolves this by checking:
+reLOCATE.AI resolves this by checking:
 ```typescript
 const isDisplayContents = style && style.display === 'contents';
 const visible = (rect.width > 0 && rect.height > 0) || isDisplayContents;
@@ -77,7 +77,7 @@ const visible = (rect.width > 0 && rect.height > 0) || isDisplayContents;
 This preserves custom buttons and web component trigger slots inside the candidate pool.
 
 ### D. Invisible & Lazy-Loaded Element Bypass
-Some elements (like `IMG` tags) may initially have `opacity: 0` or `width=0` due to lazy loading or CSS transitions, causing them to be falsely excluded by the standard bounding-box checks. RelocateAI deliberately bypasses the standard visibility check for elements whose `tagName` perfectly matches the original recorded tag, ensuring they are sent to the Visual Engine.
+Some elements (like `IMG` tags) may initially have `opacity: 0` or `width=0` due to lazy loading or CSS transitions, causing them to be falsely excluded by the standard bounding-box checks. reLOCATE.AI deliberately bypasses the standard visibility check for elements whose `tagName` perfectly matches the original recorded tag, ensuring they are sent to the Visual Engine.
 
 ---
 
@@ -142,7 +142,7 @@ The system prompt contains specialized notes:
 3. **Behavioral Compatibility**: Clarifies that listboxes, comboboxes, and tabs are opened/activated by a click, meaning `interactionType: "click"` or role listbox matches an original `"Click"` action.
 
 ### C. The Case Against Direct Raw DOM Payloads (Performance & Latency Tradeoffs)
-Instead of sending the raw, unpruned DOM directly to the AI reasoning layer, RelocateAI runs its progressive multi-tier pruning pipeline. Sending the entire DOM creates several critical side effects:
+Instead of sending the raw, unpruned DOM directly to the AI reasoning layer, reLOCATE.AI runs its progressive multi-tier pruning pipeline. Sending the entire DOM creates several critical side effects:
 - **Payload Bloat & Latency Bottlenecks**: Modern SPA pages frequently exceed **500 KB to 3 MB of raw HTML** text due to deeply nested layouts, inline SVGs, and dynamic styling hashes. Uploading multi-megabyte text blocks over standard API requests creates massive network overhead.
 - **Exponential Token Costs**: A 1 MB raw DOM equates to **250,000 to 300,000 input tokens**. Sending this for every broken locator quickly exhausts API quotas and creates unsustainable execution costs.
 - **Model Processing & Response Timeouts**: Large context windows spike the model's Time-To-First-Token (TTFT), resulting in response times of **15 to 30+ seconds** per healing action. Pruning candidates down to the top 10 elements reduces response latency to **under 1 second**.
@@ -154,6 +154,34 @@ By using lightweight local heuristics to narrow down candidates to 70, scoring t
 * **Cost Efficiency**: We cut token usage by **99.9%**, reducing API costs to fractions of a cent.
 * **Minimal Latency**: We achieve response times of **~1 second** instead of 30+ seconds.
 * **Accuracy Assurance**: We enforce strict JSON schemas on a small pool, guaranteeing highly accurate decisions and avoiding model hallucinations.
+
+### D. DOM Preparation and Intelligent LLM Query Lifecycle
+
+The connection between the DOM state and the LLM query follows a strict, sequential pipeline:
+
+```mermaid
+sequenceDiagram
+    participant R as TestRunner
+    participant B as Browser (DOM)
+    participant H as HealingEngine
+    participant AI as LLM Provider
+    
+    R->>B: 1. Scrape Candidates
+    B->>B: 2. Stamp each candidate with dynamic data-ai-healed-id
+    B-->>R: Return Scraped Candidate Fingerprints (with IDs)
+    R->>H: 3. Evaluate & Prune candidates
+    H->>AI: 4. Query LLM with top candidates and original element metadata
+    Note over AI: Performs semantic matchmaking using JSON schema
+    AI-->>H: 5. Return selected candidateId (e.g. 4)
+    H-->>R: Return resolved candidate locator path
+    R->>B: 6. Locate & Highlight element [data-ai-healed-id="4"]
+    R->>B: 7. Execute Interaction (Click/Fill)
+```
+
+1. **DOM Stamping**: When candidate elements are extracted from the page (including shadow DOMs), they are modified in-place inside the browser DOM by adding a unique attribute: `el.setAttribute('data-ai-healed-id', String(candidateId))`.
+2. **Fingerprint Packaging**: These candidate IDs, alongside their structural, spatial, and semantic fingerprints, are forwarded to the orchestrator.
+3. **Intelligent LLM Query**: If heuristics alone are insufficient, the candidate pool and original element metadata are sent to the LLM. The prompt instructs the LLM to analyze the candidate pool and return only the `candidateId` of the matching element.
+4. **Dynamic Recovery**: Playwright uses the resolved ID (e.g., `page.locator('[data-ai-healed-id="4"]')`) to execute the action, bypassing fragile selector paths.
 
 ---
 
@@ -171,7 +199,7 @@ Location: [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElement
 
 ## 6. Strict Tag-Name Matching Design & SLOT Exception
 
-To maintain maximum performance and prevent browser memory bloat (Chrome Out of Memory errors), RelocateAI enforces a strict tag-name validation contract (with specific exceptions like slots):
+To maintain maximum performance and prevent browser memory bloat (Chrome Out of Memory errors), reLOCATE.AI enforces a strict tag-name validation contract (with specific exceptions like slots):
 
 ### A. Strict Tag-Name Contract
 * **The Rule**: The original recorded element tag name (e.g., `INPUT`, `BUTTON`, `A`) must remain stable across UI updates. If a developer changes a native `<button>` element to a custom `<zui-button>` element, this is considered a significant DOM redesign that breaks the locator contract. In this case, the test case should be re-recorded.

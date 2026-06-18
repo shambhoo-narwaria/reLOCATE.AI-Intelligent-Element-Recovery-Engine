@@ -1,4 +1,4 @@
-# RelocateAI: AI Request Payload & Schema Details
+# reLOCATE.AI: AI Request Payload & Schema Details
 
 This document explains the structural payload and JSON schema utilized when interacting with the AI Reasoning Layer. It defines what metadata is sent regarding the **Object of Interest** (the broken element) and the **Candidate Pool** (extracted page elements).
 

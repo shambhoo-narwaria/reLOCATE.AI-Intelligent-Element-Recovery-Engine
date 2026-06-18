@@ -122,9 +122,9 @@ export class StatusOverlay {
       if (this.originalTitle === null) {
         this.originalTitle = await page.title().catch(() => '');
       }
-      const titlePrefix = `[RelocateAI: ${phaseInfo.simple}] `;
+      const titlePrefix = `[reLOCATE.AI: ${phaseInfo.simple}] `;
       await page.evaluate((prefix) => {
-        const cleanTitle = document.title.replace(/^\[RelocateAI:[^\]]+\]\s*/, '');
+        const cleanTitle = document.title.replace(/^\[reLOCATE\.AI:[^\]]+\]\s*/, '');
         document.title = prefix + cleanTitle;
       }, titlePrefix);
 

@@ -1,14 +1,14 @@
-# RelocateAI: Architecture & Decision Flow Guide
+# reLOCATE.AI: Architecture & Decision Flow Guide
 
-**RelocateAI** is an intelligent self-healing system for web UI test automation. 
+**reLOCATE.AI** is an intelligent self-healing system for web UI test automation. 
 
-When a test automation script fails to find a web element (a click or text input locator breaks due to layout changes, styling shifts, or dynamic code updates), RelocateAI automatically intercepts the failure, scans the live page, constructs multi-dimensional element fingerprints, and dynamically heals the broken locator in real-time.
+When a test automation script fails to find a web element (a click or text input locator breaks due to layout changes, styling shifts, or dynamic code updates), reLOCATE.AI automatically intercepts the failure, scans the live page, constructs multi-dimensional element fingerprints, and dynamically heals the broken locator in real-time.
 
 ---
 
 ## 1. High-Level Architecture
 
-RelocateAI operates as a **middle-layer orchestrator** between your test script and the web browser. When a script attempts an action on a locator that cannot be found, RelocateAI intercepts the failure and initiates the self-healing cycle.
+reLOCATE.AI operates as a **middle-layer orchestrator** between your test script and the web browser. When a script attempts an action on a locator that cannot be found, reLOCATE.AI intercepts the failure and initiates the self-healing cycle.
 
 ```mermaid
 graph TD
@@ -187,7 +187,7 @@ The Scoring Engine acts as the mathematical engine of the matching process, sepa
 
 ## 4. Element Identity Model (Fingerprinting)
 
-Unlike traditional UI automation frameworks that rely strictly on brittle, static CSS selectors or absolute XPath strings—which fail immediately when layout restructures occur or when dynamic CSS-in-JS styling hashes rotate—**RelocateAI** models targets as a **Multi-Dimensional Cognitive Element Identity Signature (Fingerprint)**.
+Unlike traditional UI automation frameworks that rely strictly on brittle, static CSS selectors or absolute XPath strings—which fail immediately when layout restructures occur or when dynamic CSS-in-JS styling hashes rotate—**reLOCATE.AI** models targets as a **Multi-Dimensional Cognitive Element Identity Signature (Fingerprint)**.
 
 This fingerprint is built by recursively crawling the live DOM and traversing shadow boundaries, extracting parameters across **8 distinct categories**. Together, they form a robust, multi-dimensional signature that allows the matching engine to identify the target element even if its tag name, layout location, parent context, or style changes.
 
@@ -373,7 +373,7 @@ The complete JSON blueprint compiled for every element contains the following pr
 
 ## 5. The Candidate Pruning Pipeline (DOM -> 10 Candidates)
 
-To prevent sending massive DOM payloads to LLMs (which is slow, expensive, and leads to target element confusion or model hallucinations), **RelocateAI** runs a highly optimized, multi-tier candidate pruning pipeline. This pipeline converts the entire raw DOM (which can contain hundreds or thousands of elements) down to just the **top 10 potential candidates** for the AI reasoning layer.
+To prevent sending massive DOM payloads to LLMs (which is slow, expensive, and leads to target element confusion or model hallucinations), **reLOCATE.AI** runs a highly optimized, multi-tier candidate pruning pipeline. This pipeline converts the entire raw DOM (which can contain hundreds or thousands of elements) down to just the **top 10 potential candidates** for the AI reasoning layer.
 
 ### Crucial Objective: Retaining the Object of Interest
 The most critical requirement of the pruning pipeline is **never to lose the Object of Interest (the target element)**. If the correct element is pruned at any stage, subsequent AI reasoning cannot recover it. Therefore, the pipeline uses safe fallbacks, lenient filters, and context bonuses to protect the target.

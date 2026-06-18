@@ -10,8 +10,11 @@
     *   Models target elements using an advanced **8-dimensional Identity Model** (Semantics, Functional, Behavioral, Ancestry, Spatial, Geometry, Visual Contour, and Grid coordinates) instead of fragile CSS selectors.
     *   Integrates a hybrid scoring engine with a structured LLM reasoning layer.
 *   **Plug-and-Play Multi-LLM & Self-Hosted Support**
-    *   Designed for strict **Data Safety & Privacy**: Supports **small, self-hosted LLMs** running locally or in private cloud instances (via **vLLM / Qwen 2.5**), ensuring sensitive test execution data remains inside your own infrastructure.
-    *   Also includes zero-dependency cloud integrations for **OpenAI (GPT-4o)** and **Google Gemini (Gemini 2.5 Flash)**.
+    *   Designed for strict **Data Safety & Privacy**: Supports **small, self-hosted LLMs** running locally or in private cloud instances (via **vLLM**), ensuring sensitive test execution data remains inside your own infrastructure.
+    *   **Recommended Models for DOM/Locator Reasoning**:
+        *   *Self-Hosted (Recommended)*: **`Qwen2.5-Coder-7B-Instruct`** or **`Qwen2.5-Coder-14B-Instruct`** (7B/14B models run easily on consumer GPUs and perform exceptionally well here because our pruning pipeline limits the context to just the top 10 candidates).
+        *   *OpenAI Cloud*: **`gpt-4o`** or **`gpt-4o-mini`** (high accuracy, structured JSON mode support).
+        *   *Google Gemini Cloud*: **`gemini-2.5-flash`** or **`gemini-2.5-pro`** (very low latency, native generation schemas).
     *   Toggle between self-hosted and cloud options instantly via `.env` configuration.
 *   **Shadow-DOM & Slot Piercing**
     *   Extracts candidates recursively across shadow boundaries.

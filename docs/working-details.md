@@ -4,7 +4,7 @@ This document provides a deep dive into the inner workings, algorithms, and modu
 
 ---
 
-## 📁 Project Directory Structure
+## Project Directory Structure
 
 ```
 reLOCATE.AI/

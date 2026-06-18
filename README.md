@@ -6,15 +6,29 @@
 
 ## Key Features
 
-*   **Multi-Dimensional Element Fingerprinting & AI Recovery**: Models target elements using an advanced 8-dimensional Element Identity Model (capturing Semantics, Functional attributes, Behavioral states, Component tree contexts, Spatial neighborhoods, DOM tree geometry, Visual edge maps, and Grid coordinates) instead of fragile CSS selectors. Integrates a hybrid scoring engine with a structured LLM reasoning layer.
-*   **Plug-and-Play Multi-LLM Support**: Built-in, zero-dependency integration for **OpenAI (GPT-4o)**, **Google Gemini (Gemini 2.5 Flash)**, and EC2-hosted **vLLM (Qwen 2.5)**. Toggle between them instantly using `.env` options.
-*   **Shadow-DOM & Slot Piercing**: Extracts candidates recursively across shadow boundaries and matches container host tags (e.g., matching target tags to `ShadowDomHostArray` tags like `zui-select-v3-17`).
-*   **Dynamic Dropdown / Value Healing**: Special prompt instructions to properly align selectors where the runtime label reflects a changed dynamic selection (e.g., matching `"Today's patients"` to `"All patients"`).
-*   **Invisible & Lazy-Loaded Element Bypass**: Automatically preserves target tags (like `IMG`) even if they evaluate to zero-width or `opacity: 0` during DOM scraping, allowing delayed resources to be properly healed.
-*   **Animation & Layout Shift Retry Engine**: Catches `"Element is not visible"` or `"detached"` errors immediately during action execution, wait for layout stabilization, and seamlessly restarts the healing process.
-*   **`display: contents` Element Support**: Retains layout-transparent elements (custom buttons, wrappers) in the candidate pool so internal interactive text is never lost.
-*   **Advanced Visual Similarity Penalties**: Heavily penalizes candidates that are massively larger than the original target (e.g., 5x or 10x area difference) to prevent layout containers from falsely matching button edge maps.
-*   **Live Visual Feedback**: Draws temporary highlight bounding boxes around target elements on the screen before performing actions.
+*   **Multi-Dimensional Fingerprinting & AI Recovery**
+    *   Models target elements using an advanced **8-dimensional Identity Model** (Semantics, Functional, Behavioral, Ancestry, Spatial, Geometry, Visual Contour, and Grid coordinates) instead of fragile CSS selectors.
+    *   Integrates a hybrid scoring engine with a structured LLM reasoning layer.
+*   **Plug-and-Play Multi-LLM Support**
+    *   Built-in, zero-dependency integration for **OpenAI (GPT-4o)**, **Google Gemini (Gemini 2.5 Flash)**, and EC2-hosted **vLLM (Qwen 2.5)**.
+    *   Toggle between them instantly using `.env` options.
+*   **Shadow-DOM & Slot Piercing**
+    *   Extracts candidates recursively across shadow boundaries.
+    *   Matches container host tags (e.g., matching target tags to `ShadowDomHostArray` tags like `zui-select-v3-17`).
+*   **Dynamic Value & Dropdown Healing**
+    *   Special prompt instructions to properly align selectors where the runtime label reflects a changed dynamic selection (e.g., matching `"Today's patients"` to `"All patients"`).
+*   **Invisible & Lazy-Loaded Element Bypass**
+    *   Automatically preserves target tags (like `IMG`) even if they evaluate to zero-width or `opacity: 0` during DOM scraping, allowing delayed resources to be properly healed.
+*   **Animation & Layout Shift Retry Engine**
+    *   Catches `"Element is not visible"` or `"detached"` errors immediately during action execution.
+    *   Waits for layout stabilization and restarts the healing process seamlessly.
+*   **`display: contents` Element Support**
+    *   Retains layout-transparent elements (custom buttons, wrappers) in the candidate pool so internal interactive text is never lost.
+*   **Advanced Visual Similarity Penalties**
+    *   Heavily penalizes candidates that are massively larger than the original target (e.g., 5x or 10x area difference).
+    *   Prevents layout containers from falsely matching button edge maps.
+*   **Live Visual Feedback**
+    *   Draws temporary highlight bounding boxes around target elements on the screen before performing actions.
 
 ---
 
@@ -24,18 +38,24 @@ For a simple-to-understand walkthrough of the decision engine flows, visual diag
 
 ```mermaid
 graph TD
-    A[Runner] -->|1. Try Selector| B(DOM Element Found?)
-    B -->|Yes| C[Execute Action]
-    B -->|No| D[Stabilize Page & Scrape Candidates]
-    D -->|Candidate Finder| E[Construct Element Identity Fingerprints]
-    E -->|Scoring Engine| F[Align 9 Scoring Rules & Weightings]
-    F -->|Heuristic Evaluation| G{Needs AI Fallback?}
-    G -->|No| H[Apply Best Heuristic Selector]
-    G -->|Yes| I["Trigger AI Service: OpenAI, Gemini, or VLLM (Qwen)"]
-    I -->|JSON Response Schema| J[Select Top Candidate]
-    H --> K["Inject [data-ai-healed-id] Locator"]
+    %% Custom Theme Styling
+    classDef runner fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
+    classDef scoring fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#f8fafc;
+    classDef ai fill:#0b2545,stroke:#00c9a7,stroke-width:2px,color:#8efcd4;
+    classDef action fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5;
+
+    A[Runner]:::runner -->|1. Try Selector| B(DOM Element Found?):::runner
+    B -->|Yes| C[Execute Action]:::action
+    B -->|No| D[Stabilize Page & Scrape Candidates]:::runner
+    D --> E[Construct Element Identity Fingerprints]:::runner
+    E --> F[Align 9 Scoring Rules & Weightings]:::scoring
+    F --> G{Needs AI Fallback?}:::scoring
+    G -->|No| H[Apply Best Heuristic Selector]:::scoring
+    G -->|Yes| I["Trigger AI Service: OpenAI, Gemini, or VLLM"]:::ai
+    I --> J[Select Top Candidate]:::ai
+    H --> K["Inject [data-ai-healed-id] Locator"]:::action
     J --> K
-    K -->|Visual Highlight| L[Perform Action & Log Output]
+    K -->|Visual Highlight| L[Perform Action & Log Output]:::action
 ```
 
 1.  **Test Runner (`src/runner/test-runner.ts`)**: Loads JSON testcases, executes standard operations, draws overlay borders, validates healed actionability, and maintains run metrics.

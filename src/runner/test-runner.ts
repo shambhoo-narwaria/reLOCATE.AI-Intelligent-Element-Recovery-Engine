@@ -13,7 +13,7 @@ import { saveOriginalTemplateImage, highlightAndScreenshot, saveBase64Image } fr
 import { validateOriginalLocatorSemantically } from '../healing/validation/safety.validator';
 
 export class TestRunner {
-  private testCasePath = path.resolve(__dirname, '../../Testcase/NeuroTestcase.json');
+  private testCasePath = path.resolve(__dirname, '../../Testcase/ZeissTestcase.json');
   private useHealing = false;
   private statusOverlay = new StatusOverlay();
 
@@ -265,6 +265,8 @@ export class TestRunner {
     const locXpath = step.LocXpath;
     const originalLocator = locCss || locXpath || '';
 
+    // set the object name to the status overlay
+    this.statusOverlay.setObjectName(step.ObjectName || '');
     await this.statusOverlay.show(page, 'LOCATING');
 
     // Wait for page layout/loading to settle before trying to locate the element
@@ -671,22 +673,6 @@ export class TestRunner {
       logger.debug(`[TestRunner] Relevance cap applied: kept top ${candidates.length} of ${scored.length} candidates (keywords: [${allKeywords.slice(0, 8).join(', ')}])`);
     }
 
-    let logCandidates = false;
-    try {
-      const configPath = path.join(process.cwd(), 'config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        logCandidates = config.LOG_CANDIDATES ?? false;
-      }
-    } catch {}
-
-    if (logCandidates) {
-      const targetName = step.ObjectName || step.accessibleName || 'unknown';
-      logger.debug(`[TestRunner] Extracted ${candidates.length} final candidate elements for object "${targetName}":`);
-      candidates.forEach((c, idx) => {
-        logger.debug(`   - Candidate #${idx + 1} [ID ${c.candidateId}] text="${c.semantic.text?.substring(0,30) || ''}" cls="${c.functional.className || ''}" xpath="${c.functional.cssSelector || ''}"`);
-      });
-    }
 
     // ── Visual Verification: calculate screenshot similarity ─────────────────
     if (step.Screenshot && step.ElementViewportRect && Array.isArray(step.ElementViewportRect) && step.ElementViewportRect.length === 4) {
@@ -1055,21 +1041,21 @@ export class TestRunner {
     console.log(`  - Reason: ${healResult.reason}`);
 
     let healedEl: Locator;
-    if (healResult.candidateId !== undefined) {
-      const idLocator = page.locator(`[data-ai-healed-id="${healResult.candidateId}"]`).first();
-      let isAttached = false;
-      try {
-        isAttached = await idLocator.isVisible({ timeout: 500 });
-      } catch {}
+    const cssLocator = page.locator(healResult.healedLocator).first();
+    let cssVisible = false;
+    try {
+      cssVisible = await cssLocator.isVisible({ timeout: 500 });
+    } catch {}
 
-      if (isAttached) {
-        healedEl = idLocator;
-      } else {
-        console.warn(`[TestRunner] Custom attribute [data-ai-healed-id="${healResult.candidateId}"] not visible or detached. Falling back to healed CSS locator: "${healResult.healedLocator}"`);
-        healedEl = page.locator(healResult.healedLocator).first();
-      }
+    if (cssVisible) {
+      healedEl = cssLocator;
     } else {
-      healedEl = page.locator(healResult.healedLocator).first();
+      if (healResult.candidateId !== undefined) {
+        console.warn(`[TestRunner] Healed CSS locator "${healResult.healedLocator}" not visible or detached. Falling back to custom attribute [data-ai-healed-id="${healResult.candidateId}"]`);
+        healedEl = page.locator(`[data-ai-healed-id="${healResult.candidateId}"]`).first();
+      } else {
+        healedEl = cssLocator;
+      }
     }
     // Ensure element is scrolled into view before validation/action
     await healedEl.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(err => {
@@ -1183,6 +1169,11 @@ export class TestRunner {
       logger.debug(`[TestRunner] Monitoring DOM stability...`);
       await page.evaluate(async (maxWait) => {
         return new Promise<void>((resolve) => {
+          if (!document.body) {
+            resolve();
+            return;
+          }
+
           let timeoutId: any;
           let lastMutationTime = Date.now();
 
@@ -1223,7 +1214,9 @@ export class TestRunner {
       // Force layout recalculation
       await page.evaluate(() => {
         // trigger reflow
-        document.body.getBoundingClientRect();
+        if (document.body) {
+          document.body.getBoundingClientRect();
+        }
       });
       
       logger.debug(`[TestRunner] Page stabilization complete.`);

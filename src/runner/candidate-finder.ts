@@ -88,36 +88,114 @@ export class CandidateFinder {
       };
 
       // ── Build CSS selector ────────────────────────────────────────────────
-      const buildCss = (el: Element): string => {
-        const id = attr(el, 'id');
-        if (id) return `#${id}`;
-        const t = el.tagName.toLowerCase();
-        for (const a of ['data-testid', 'data-test', 'data-qa', 'data-cy', 'value', 'tile-title', 'name', 'type', 'role']) {
-          const v = attr(el, a);
-          if (v) return `${t}[${a}="${v}"]`;
-        }
-        const cls = (typeof el.className === 'string')
-          ? el.className.split(/\s+/).filter(c => c && !c.includes(':') && !c.includes('['))
-          : [];
-        return cls.length ? `${t}.${cls.join('.')}` : t;
+      const isDynamicId = (idVal: string): boolean => {
+        if (!idVal) return false;
+        // React 18 useId format: :r1:, :r2:, etc.
+        if (/:r[0-9a-zA-Z_-]+:/.test(idVal)) return true;
+        // Ember/Angular/MUI/extjs/JSF/Apex auto-generated IDs
+        if (/^(ember|ext-gen|ext-comp|j_id|mui-|input-|button-|select-)[0-9]+/i.test(idVal)) return true;
+        // Ends with a dash or underscore followed by numbers (e.g. button-12, input_5)
+        if (/[-_][0-9]+$/.test(idVal)) return true;
+        // Purely numeric or long hex/hash
+        if (/^[0-9]+$/.test(idVal) || /^[0-9a-fA-F]{8,}$/.test(idVal)) return true;
+        return false;
       };
 
-      const getUniqueCssInShadow = (element: Element): string => {
+      const isDynamicClass = (clsName: string): boolean => {
+        if (!clsName) return false;
+        if (/^ng-/.test(clsName)) return true;
+        if (/^(sc-|css-)[a-zA-Z0-9]+/.test(clsName)) return true;
+        const tailwindPrefixes = /^(p|m|w|h|bg|text|border|rounded|flex|grid|items|justify|align|absolute|relative|fixed|sticky|z|opacity|cursor|overflow|transition|duration|ease|shadow|gap|col|row|self|top|left|right|bottom|max|min|tracking|leading|font|aspect|place|order|whitespace|object|pointer)-/;
+        if (tailwindPrefixes.test(clsName)) return true;
+        const styleUtilities = /^(flex|grid|block|inline|hidden|visible|invisible|static|relative|absolute|fixed|sticky|truncate|capitalize|uppercase|lowercase|italic|underline|antialiased|border|rounded)$/;
+        if (styleUtilities.test(clsName)) return true;
+        if (/^_[a-zA-Z0-9]{5,}$/.test(clsName)) return true;
+        if (/[0-9]{3,}/.test(clsName)) return true;
+
+        // Common stable semantic class names of length 5 or 6 to avoid false positives
+        const commonWords = new Set([
+          'title', 'label', 'input', 'close', 'active', 'modal', 'panel', 'alert', 'badge', 
+          'focus', 'hover', 'error', 'valid', 'small', 'large', 'clear', 'reset', 'inner', 
+          'outer', 'block', 'table', 'thead', 'tbody', 'tfoot', 'value', 'group', 'field', 
+          'image', 'theme', 'white', 'black', 'green', 'light', 'media', 'icon', 'button',
+          'select', 'option', 'avatar', 'header', 'footer'
+        ]);
+
+        // Detect Styled Components random hashes (e.g. ceOgNO, iAILnQ, kxMYXq)
+        if (/^[a-zA-Z0-9]{5,6}$/.test(clsName)) {
+          if (!commonWords.has(clsName.toLowerCase())) {
+            return true;
+          }
+        }
+
+        // Detect CSS Modules random hashes at the end (e.g. Controls-module_zuiIcon__yTzu2)
+        const cssModuleMatch = clsName.match(/__([a-zA-Z0-9]{5,6})$/);
+        if (cssModuleMatch) {
+          const suffix = cssModuleMatch[1];
+          if (!commonWords.has(suffix.toLowerCase())) {
+            return true;
+          }
+        }
+
+        return false;
+      };
+
+      const getUniqueCssInShadow = (element: Element, root: ParentNode): string => {
         const path: string[] = [];
         let cur: Element | null = element;
         while (cur && cur.nodeType === Node.ELEMENT_NODE) {
           const tagName = cur.tagName.toLowerCase();
           
-          let segment = '';
+          let base = '';
           const id = attr(cur, 'id');
-          if (id) {
-            segment = `#${id}`;
+          const isStableId = id && !isDynamicId(id);
+          
+          if (isStableId) {
+            base = `#${CSS.escape(id)}`;
           } else {
-            for (const a of ['data-testid', 'data-test', 'data-qa', 'data-cy']) {
+            // Try test-ids
+            for (const a of ['data-testid', 'data-test-id', 'data-test', 'data-qa', 'data-cy']) {
               const v = attr(cur, a);
               if (v) {
-                segment = `${tagName}[${a}="${v}"]`;
+                base = `${tagName}[${a}="${CSS.escape(v)}"]`;
                 break;
+              }
+            }
+            // Try name
+            if (!base) {
+              const name = attr(cur, 'name');
+              if (name) {
+                base = `${tagName}[name="${CSS.escape(name)}"]`;
+              }
+            }
+            // Try aria-label
+            if (!base) {
+              const ariaLabel = attr(cur, 'aria-label');
+              if (ariaLabel) {
+                base = `${tagName}[aria-label="${CSS.escape(ariaLabel)}"]`;
+              }
+            }
+            // Try placeholder
+            if (!base) {
+              const placeholder = attr(cur, 'placeholder');
+              if (placeholder) {
+                base = `${tagName}[placeholder="${CSS.escape(placeholder)}"]`;
+              }
+            }
+            // Try role
+            if (!base) {
+              const role = attr(cur, 'role');
+              if (role) {
+                base = `${tagName}[role="${CSS.escape(role)}"]`;
+              }
+            }
+            // Try stable class names
+            if (!base) {
+              const classes = (typeof cur.className === 'string')
+                ? cur.className.split(/\s+/).filter(c => c && !c.includes(':') && !c.includes('[') && !isDynamicClass(c))
+                : [];
+              if (classes.length > 0) {
+                base = `${tagName}.${classes.map(c => CSS.escape(c)).join('.')}`;
               }
             }
           }
@@ -132,23 +210,49 @@ export class CandidateFinder {
             parent = cur.parentElement;
           }
 
-          if (!segment) {
-            if (parent) {
-              const siblings = Array.from(parent.children || []);
-              const index = siblings.indexOf(cur) + 1;
-              segment = `${tagName}:nth-child(${index})`;
-            } else {
-              segment = tagName;
+          if (!base) {
+            base = tagName;
+          }
+
+          let segment = base;
+          if (parent && !isStableId) {
+            const siblings = Array.from(parent.children || []);
+            const index = siblings.indexOf(cur) + 1;
+            
+            // Check if there are other siblings matching 'base'
+            let matchingSiblingsCount = 0;
+            for (const sib of siblings) {
+              try {
+                if (sib.matches(base)) {
+                  matchingSiblingsCount++;
+                }
+              } catch (e) {}
+            }
+            
+            if (matchingSiblingsCount > 1) {
+              // Sibling is not unique under its parent matching 'base', make it unique using :nth-child
+              segment = `${base}:nth-child(${index})`;
             }
           }
 
           path.unshift(segment);
 
+          // Check uniqueness in the root context to make the selector as short as possible
+          const currentSelector = path.join(' > ');
+          try {
+            const matches = root.querySelectorAll(currentSelector);
+            if (matches.length === 1 && matches[0] === element) {
+              break;
+            }
+          } catch (e) {
+            // ignore query syntax errors
+          }
+
           if (isShadowBoundary) {
             break;
           }
-          // Only break early if we hit a true ID, otherwise keep building the path for maximum specificity
-          if (id) {
+          // Only break early if we hit a stable ID, otherwise keep building the path for maximum specificity
+          if (isStableId) {
             break;
           }
           cur = cur.parentElement;
@@ -156,12 +260,36 @@ export class CandidateFinder {
         return path.join(' > ');
       };
 
+      const shadowContains = (root: ParentNode | null, target: Node): boolean => {
+        if (!root) return false;
+        let cur: Node | null = target;
+        while (cur) {
+          if (cur === root) return true;
+          const parent: Node | null = cur.parentNode;
+          if (parent instanceof ShadowRoot) {
+            cur = parent.host;
+          } else {
+            cur = parent;
+          }
+        }
+        return false;
+      };
+
       const buildUniqueShadowSelector = (element: Element, hosts: Element[]): string => {
         const selectors: string[] = [];
-        for (const host of hosts) {
-          selectors.push(getUniqueCssInShadow(host));
+        let currentRoot: ParentNode = document;
+        
+        for (let i = 0; i < hosts.length; i++) {
+          const host = hosts[i];
+          selectors.push(getUniqueCssInShadow(host, currentRoot));
+          
+          const nextTarget = (i < hosts.length - 1) ? hosts[i + 1] : element;
+          if (host.shadowRoot && shadowContains(host.shadowRoot, nextTarget)) {
+            currentRoot = host.shadowRoot;
+          }
         }
-        selectors.push(getUniqueCssInShadow(element));
+        
+        selectors.push(getUniqueCssInShadow(element, currentRoot));
         // Use a space instead of '>>' because Playwright's modern CSS engine 
         // automatically pierces shadow DOM boundaries by default.
         return selectors.join(' ');

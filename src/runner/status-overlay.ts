@@ -4,9 +4,19 @@ import { logger } from '../logger/debug-logger';
 export class StatusOverlay {
   private originalTitle: string | null = null;
   private currentAlign: 'left' | 'right' = 'right';
+  private currentObjectName: string = '';
 
   getCurrentAlign(): 'left' | 'right' {
     return this.currentAlign;
+  }
+
+  setObjectName(name: string): void {
+    const cleanName = name.trim();
+    if (cleanName.length > 7) {
+      this.currentObjectName = cleanName.substring(0, 7) + '...';
+    } else {
+      this.currentObjectName = cleanName;
+    }
   }
 
   async show(
@@ -122,15 +132,17 @@ export class StatusOverlay {
       if (this.originalTitle === null) {
         this.originalTitle = await page.title().catch(() => '');
       }
-      const titlePrefix = `[reLOCATE.AI: ${phaseInfo.simple}] `;
+      const titlePrefix = this.currentObjectName
+        ? `[reLOCATE.AI (${this.currentObjectName}): ${phaseInfo.simple}] `
+        : `[reLOCATE.AI: ${phaseInfo.simple}] `;
       await page.evaluate((prefix) => {
-        const cleanTitle = document.title.replace(/^\[reLOCATE\.AI:[^\]]+\]\s*/, '');
+        const cleanTitle = document.title.replace(/^\[reLOCATE\.AI[^\]]*\]\s*/, '');
         document.title = prefix + cleanTitle;
       }, titlePrefix);
 
       // 2. Inject or update glassmorphic status card on page
       const isVisual = (phase === 'VISUAL');
-      await page.evaluate(({ tough, simple, isVisual, align }) => {
+      await page.evaluate(({ tough, simple, isVisual, align, objectName }) => {
         let overlay = document.getElementById('__ai-healing-status-overlay__');
         if (!overlay) {
           overlay = document.createElement('div');
@@ -167,7 +179,6 @@ export class StatusOverlay {
             'display: flex',
             'align-items: center'
           ].join(';');
-          header.innerText = 'reLOCATE.AI ENGINE';
 
           // Glowing active indicator dot
           const dot = document.createElement('span');
@@ -181,7 +192,12 @@ export class StatusOverlay {
             'margin-right: 6px',
             'vertical-align: middle'
           ].join(';');
-          header.prepend(dot);
+          header.appendChild(dot);
+
+          const headerText = document.createElement('span');
+          headerText.id = '__ai-healing-status-header-text__';
+          headerText.innerText = objectName ? 'reLOCATE.AI ENGINE [' + objectName + ']' : 'reLOCATE.AI ENGINE';
+          header.appendChild(headerText);
 
           const toughLabel = document.createElement('div');
           toughLabel.id = '__ai-healing-status-tough__';
@@ -235,9 +251,11 @@ export class StatusOverlay {
 
         const toughEl = document.getElementById('__ai-healing-status-tough__');
         const simpleEl = document.getElementById('__ai-healing-status-simple__');
+        const headerTextEl = document.getElementById('__ai-healing-status-header-text__');
         if (toughEl) toughEl.innerText = tough;
         if (simpleEl) simpleEl.innerText = simple;
-      }, { tough: toughText, simple: simpleText, isVisual, align: this.currentAlign });
+        if (headerTextEl) headerTextEl.innerText = objectName ? 'reLOCATE.AI ENGINE [' + objectName + ']' : 'reLOCATE.AI ENGINE';
+      }, { tough: toughText, simple: simpleText, isVisual, align: this.currentAlign, objectName: this.currentObjectName });
     } catch (err: any) {
       // Silently ignore browser context errors during navigation
     }

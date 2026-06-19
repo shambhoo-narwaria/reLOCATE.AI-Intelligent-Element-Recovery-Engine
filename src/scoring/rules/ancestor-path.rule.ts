@@ -25,12 +25,14 @@ export class AncestorPathRule implements ScoringRule {
     const origHostTags = this.extractHostTags(original);
     const candHostChain = candidate.ancestorContext.shadowHostChain || [];
 
+    let similarity1 = 0;
     if (origHostTags.length > 0 && candHostChain.length > 0) {
-      const similarity = this.calculateLcsSimilarity(origHostTags, candHostChain);
-      score += similarity * 0.5;
+      similarity1 = this.calculateLcsSimilarity(origHostTags, candHostChain, true);
+      score += similarity1 * 0.5;
     } else if (origHostTags.length === 0 && candHostChain.length === 0) {
       // Both not in shadow DOM — neutral (no penalty, no bonus)
       score += 0.25;
+      similarity1 = 0.5;
     }
 
     // ── 2. Full Tag Path LCS Sequence Match (0.3) ────────────────────────
@@ -38,12 +40,14 @@ export class AncestorPathRule implements ScoringRule {
     const origTagPath = this.getOriginalTagPath(original);
     const candTagPath = this.getCandidateTagPath(candidate);
 
+    let similarity2 = 0;
     if (origTagPath.length > 0 && candTagPath.length > 0) {
-      const similarity = this.calculateLcsSimilarity(origTagPath, candTagPath);
-      score += similarity * 0.3;
+      similarity2 = this.calculateLcsSimilarity(origTagPath, candTagPath);
+      score += similarity2 * 0.3;
     }
 
     // ── 3. Table column header match (0.2) ────────────────────────────
+    let similarity3 = 0;
     if (candidate.tableContext && candidate.tableContext.columnHeader) {
       // Check if the original's ObjectName or nearby text mentions the column header
       const origName = (original.LocText || original.LocTitle || original.OwnInnerText || '').toLowerCase().trim();
@@ -52,9 +56,7 @@ export class AncestorPathRule implements ScoringRule {
 
       if (origNearby.some((t: string) => t.includes(colHeader) || colHeader.includes(t))) {
         score += 0.2;
-      } else if (origName && colHeader) {
-        // Partial credit if column header appears in context
-        score += 0;
+        similarity3 = 1.0;
       }
     }
 
@@ -62,26 +64,45 @@ export class AncestorPathRule implements ScoringRule {
   }
 
   /**
-   * Extract tag names from the original element's ShadowDomHostArray selectors.
-   * Filters out combinators, class/ID qualifiers, and pseudos to yield tag names.
+   * Extract tag names from the original element's shadow DOM attributes.
+   * Leverages both ShadowDomFullXpathArray (for absolute outermost->innermost chain)
+   * and ShadowDomHostArray (as fallback/selectors) to capture complete shadow host sequences.
    */
   private extractHostTags(original: OriginalElement): string[] {
-    const tags: string[] = [];
+    const tagsSet = new Set<string>();
+
+    // 1. First, extract from ShadowDomFullXpathArray (absolute paths) to build correct order from outermost to innermost
+    (original.ShadowDomFullXpathArray || []).forEach((xpath: string) => {
+      xpath.split('/').filter(Boolean).forEach((seg: string) => {
+        let tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
+        if (tag.includes('NAME()=')) {
+          const match = tag.match(/NAME\(\)=['"]([^'"]+)['"]/);
+          if (match) tag = match[1].toUpperCase();
+        }
+        // Filter to only include custom tags (which contain a hyphen),
+        // matching the candidate's actual shadowHostChain elements.
+        if (tag && tag.includes('-') && tag !== 'HTML' && tag !== 'BODY') {
+          tagsSet.add(tag);
+        }
+      });
+    });
+
+    // 2. Then, extract from ShadowDomHostArray (selectors) as a fallback/additional source,
+    // only adding tags if they are not already in the set, to avoid changing the order.
     (original.ShadowDomHostArray || []).forEach((sel: string) => {
       const parts = sel.split(/[\s>+~]+/);
-      // The last part of a shadow host selector is the actual shadow host tag
-      if (parts.length > 0) {
-        const lastPart = parts[parts.length - 1];
-        const match = lastPart.match(/^([a-zA-Z0-9-]+)/);
+      parts.forEach(part => {
+        const match = part.match(/^([a-zA-Z0-9-]+)/);
         if (match) {
           const tag = match[1].toUpperCase();
-          if (tag && tag !== 'HTML' && tag !== 'BODY') {
-            tags.push(tag);
+          if (tag && tag.includes('-') && tag !== 'HTML' && tag !== 'BODY') {
+            tagsSet.add(tag);
           }
         }
-      }
+      });
     });
-    return tags;
+
+    return [...tagsSet];
   }
 
   /**
@@ -167,7 +188,7 @@ export class AncestorPathRule implements ScoringRule {
    * Calculate Longest Common Subsequence (LCS) similarity between two tag arrays.
    * Returns a normalized score between 0.0 and 1.0 based on seq1 length.
    */
-  private calculateLcsSimilarity(seq1: string[], seq2: string[]): number {
+  private calculateLcsSimilarity(seq1: string[], seq2: string[], normalizeByFirst = false): number {
     if (seq1.length === 0 || seq2.length === 0) return 0;
 
     const m = seq1.length;
@@ -186,7 +207,7 @@ export class AncestorPathRule implements ScoringRule {
     }
 
     const lcsLength = dp[m][n];
-    const maxLength = Math.max(m, n);
-    return maxLength === 0 ? 0 : lcsLength / maxLength;
+    const denom = normalizeByFirst ? m : Math.max(m, n);
+    return denom === 0 ? 0 : lcsLength / denom;
   }
 }

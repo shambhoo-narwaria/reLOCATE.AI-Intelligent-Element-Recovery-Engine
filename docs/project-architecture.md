@@ -86,14 +86,13 @@ flowchart TD
     
     TargetStamp --> Validate{Does candidate pass actionability checks?}:::condition
     
-    Validate -->|Yes| Highlight[Highlight in red & Save step-xx.png to report/]:::action
+    Validate -->|Yes| Action[Perform Click / Fill]:::action
     Validate -->|No| ExtraWait[Sleep 10 seconds & retry validation]:::action
     
     ExtraWait --> Validate2{Does candidate pass validation now?}:::condition
-    Validate2 -->|Yes| Highlight
+    Validate2 -->|Yes| Action
     Validate2 -->|No| Fail[Throw Healing Validation Error]:::action
     
-    Highlight --> Action[Perform Click / Fill]:::action
     Action -->|Success| Success[Record outcome: Healing Success]:::action
     Action -->|Fail: Not Visible/Detached| RetryDelay[Wait 1.5s for Layout Shift]:::action
     RetryDelay --> Stabilize
@@ -412,11 +411,9 @@ flowchart TD
     H --> I["4. Visual Verification & Comparison"]:::stage
     I -->|Compare Visual Shape & Edges| J{"Candidate Area Mismatch?"}:::stage
     J -->|Area >= 10x Original| K["Apply Penalty: -1.0"]:::stage
-    J -->|Area >= 5x Original| L["Apply Penalty: -0.5"]:::stage
     J -->|Normal Size| M["Apply Normal Similarity"]:::stage
     
     K --> N["Map Similarity to Candidates"]:::stage
-    L --> N
     M --> N
     
     N --> O["5. Full 11-Tier Scoring Engine"]:::stage
@@ -455,7 +452,6 @@ If the candidate pool is still larger than 70 elements, a lightweight keyword an
 - **Process**: The top 20 candidates are scrolled into view sequentially, and compared visually against the original template.
 - **Area-Based Penalties**:
   - If the candidate's area is **10 times or more** than the original element: visual similarity score is heavily penalized (-1.0).
-  - If the candidate's area is **5 times or more** than the original element: visual similarity score is partially penalized (-0.5).
 - **Result**: Highly similar but oversized layout wrappers are heavily penalized. The similarity scores are mapped back to the candidate objects.
 
 #### Stage 5: Final Selection (Top 10 Candidates)
@@ -499,7 +495,7 @@ graph TD
 2. **Visual Match Gate**
    * **Mechanism**: Compares cropped canvas edge contours against the original target screenshot using Jaccard edge-similarity mapping.
    * **Failure Threshold**: Fails candidate if visual edge similarity is **$< 15\%$** when original screenshot templates are present.
-   * **Size Anomaly Protection**: Rejects layout wrappers automatically if similarity scores reflect size penalties (`-1.0` or `-0.5`).
+   * **Size Anomaly Protection**: Rejects layout wrappers automatically if similarity scores reflect size penalties (`-1.0`).
    * **Bypass**: Bypasses the gate if screenshots are absent or if visual similarity evaluates to exactly `0` (the default/fallback value indicating a visual matching failure).
 
 ### Sequential Fallback & Healing Aborts

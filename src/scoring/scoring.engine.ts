@@ -1,4 +1,4 @@
-import { ScoringRule } from './scoring-rule.interface';
+import { ScoringRule } from '../interfaces/scoring-rule.interface';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
 

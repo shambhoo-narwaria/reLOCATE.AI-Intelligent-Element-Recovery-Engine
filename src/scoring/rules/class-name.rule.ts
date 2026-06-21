@@ -1,11 +1,11 @@
-import { ScoringRule } from '../scoring-rule.interface';
+import { ScoringRule } from '../../interfaces/scoring-rule.interface';
 import { OriginalElement } from '../../interfaces/original-element.interface';
 import { Candidate } from '../../interfaces/candidate.interface';
 
 /**
  * Scores candidates based on how closely their class names match the original element's class name.
  * Excludes Angular-specific context attributes (e.g. _ngcontent-*, _nghost-*) for stability.
- * Weight: 15 — class names are a strong widget/styling identifier.
+ * Weight: 10 — class names are a strong widget/styling identifier.
  */
 export class ClassNameRule implements ScoringRule {
   readonly name = 'ClassNameRule';

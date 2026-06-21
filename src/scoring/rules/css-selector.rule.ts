@@ -1,4 +1,4 @@
-import { ScoringRule } from '../scoring-rule.interface';
+import { ScoringRule } from '../../interfaces/scoring-rule.interface';
 import { OriginalElement } from '../../interfaces/original-element.interface';
 import { Candidate } from '../../interfaces/candidate.interface';
 
@@ -116,7 +116,6 @@ export class CssSelectorRule implements ScoringRule {
     // Normalize by original CSS selector length to evaluate alignment coverage
     const similarity = lcsScore / m;
     const score = similarity * this.weight;
-    console.log(`[CssSelectorRule Debug] object="${original.ObjectName || 'unknown'}" orig="${origCss}" cand="${candCss}" m=${m} n=${n} lcsScore=${lcsScore} score=${score} candId=${candidate.candidateId}`);
 
     return score;
 

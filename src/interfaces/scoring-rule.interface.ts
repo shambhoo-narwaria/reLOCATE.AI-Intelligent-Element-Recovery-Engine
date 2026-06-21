@@ -1,5 +1,5 @@
-import { OriginalElement } from '../interfaces/original-element.interface';
-import { Candidate } from '../interfaces/candidate.interface';
+import { OriginalElement } from './original-element.interface';
+import { Candidate } from './candidate.interface';
 
 export interface ScoringRule {
   readonly name: string;

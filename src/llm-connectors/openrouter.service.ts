@@ -2,7 +2,7 @@ import { OpenAI } from 'openai';
 import { AIProvider } from '../interfaces/ai-provider.interface';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
-import { logger } from '../logger/debug-logger';
+import { logger } from '../utils/debug-logger';
 
 import { cleanObject, cleanCandidate } from '../utils/candidate-cleaner';
 
@@ -111,7 +111,7 @@ Select the single best matching candidate. Output ONLY the JSON object.`;
     // ── Retry loop with exponential back-off ──────────────────────────────
     // OpenRouter free-tier can return 429, 500, or simply timeout when
     // traffic spikes.  We retry up to MAX_ATTEMPTS times before giving up.
-    const MAX_ATTEMPTS = 3;
+    const MAX_ATTEMPTS = 1;
     const BASE_DELAY_MS = 3000;
     const PER_CALL_TIMEOUT_MS = 60_000; // 60 s hard cap per attempt
 

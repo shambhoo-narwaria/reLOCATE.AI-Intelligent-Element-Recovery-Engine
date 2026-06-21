@@ -302,7 +302,8 @@ export class CandidateFinder {
         // Resolve inline search highlights or style wrappers (like B, MARK, SPAN) to their parent container text source
         const INLINE_TAGS = new Set(['b', 'i', 'strong', 'em', 'mark', 'span', 'font', 'slot', 'u', 'code', 'small']);
         let resolvedEl = el;
-        if (INLINE_TAGS.has(t)) {
+        const isTargetInline = tag && INLINE_TAGS.has(tag.toLowerCase().trim());
+        if (INLINE_TAGS.has(t) && !isTargetInline) {
           let cur: Element | null = el.parentElement;
           while (cur) {
             const curTag = cur.tagName.toLowerCase();
@@ -399,6 +400,10 @@ export class CandidateFinder {
 
         // Walk every direct child recursively within this root
         const walk = (node: Element, depthInRoot: number) => {
+          if (node.id === '__ai-healing-status-overlay__' || node.id === '__ai-healing-highlight__') {
+            return;
+          }
+
           const isInteractive = (() => {
             try { return node.matches(baseSelector); } catch { return false; }
           })();
@@ -462,7 +467,8 @@ export class CandidateFinder {
         // ── Semantic ─────────────────────────────────────────────────────
         const INLINE_TAGS = new Set(['b', 'i', 'strong', 'em', 'mark', 'span', 'font', 'slot', 'u', 'code', 'small']);
         let semanticTextSource = el;
-        if (INLINE_TAGS.has(el.tagName.toLowerCase())) {
+        const isTargetInline = tag && INLINE_TAGS.has(tag.toLowerCase().trim());
+        if (INLINE_TAGS.has(el.tagName.toLowerCase()) && !isTargetInline) {
           let cur: Element | null = el.parentElement;
           while (cur) {
             const curTag = cur.tagName.toLowerCase();

@@ -1,13 +1,7 @@
-import * as fs   from 'fs';
+import * as fs from 'fs';
 import * as path from 'path';
 import { cleanCandidate } from '../utils/candidate-cleaner';
 
-// ── DebugLogger ────────────────────────────────────────────────────────────────
-// Mirrors every log call to the console AND a timestamped file under /logs/.
-// Call DebugLogger.getInstance() to get the singleton.
-// Usage:
-//   DebugLogger.log('TAG', 'message', optionalData)
-// ──────────────────────────────────────────────────────────────────────────────
 export class DebugLogger {
   private static instance: DebugLogger;
   private logPath: string;
@@ -27,12 +21,13 @@ export class DebugLogger {
     return DebugLogger.instance;
   }
 
-  // ── Low-level writer ────────────────────────────────────────────────────────
   private write(text: string): void {
-    try { fs.appendFileSync(this.logPath, text); } catch { /* never block main flow */ }
+    try {
+      fs.appendFileSync(this.logPath, text);
+    } catch {
+      // Ignore write errors to not block execution
+    }
   }
-
-  // ── Public API ──────────────────────────────────────────────────────────────
 
   private formatData(data: unknown): string {
     if (data === undefined) return '';
@@ -53,9 +48,8 @@ export class DebugLogger {
     }
   }
 
-  /** General log line (also prints to console) */
   log(tag: string, message: string, data?: unknown): void {
-    const ts   = new Date().toISOString();
+    const ts = new Date().toISOString();
     const line = `[${ts}] [${tag}] ${message}`;
     console.log(message);
     this.write(line + '\n');
@@ -64,9 +58,8 @@ export class DebugLogger {
     }
   }
 
-  /** Warning log line (also prints to console.warn) */
   warn(message: string, data?: unknown): void {
-    const ts   = new Date().toISOString();
+    const ts = new Date().toISOString();
     const line = `[${ts}] [WARN] ${message}`;
     console.warn(message);
     this.write(line + '\n');
@@ -75,9 +68,8 @@ export class DebugLogger {
     }
   }
 
-  /** Debug log line (writes to FILE ONLY, completely hides from console to prevent spam) */
   debug(message: string, data?: unknown): void {
-    const ts   = new Date().toISOString();
+    const ts = new Date().toISOString();
     const line = `[${ts}] [DEBUG] ${message}`;
     this.write(line + '\n');
     if (data !== undefined) {
@@ -85,13 +77,11 @@ export class DebugLogger {
     }
   }
 
-  /** Mark the start of a new test step */
   stepStart(index: number, total: number, action: string, objectName: string): void {
     const header = `\n${'─'.repeat(80)}\nSTEP ${index}/${total}  action="${action}"  object="${objectName}"\n${'─'.repeat(80)}`;
     this.write(header + '\n');
   }
 
-  /** Log the full candidate list before sending to AI */
   logCandidates(stepName: string, candidates: any[]): void {
     const cleaned = candidates.map(c => cleanCandidate(c));
     const header = `\n── CANDIDATES SENT TO AI (step="${stepName}", count=${candidates.length}) ──────────\n`;
@@ -99,7 +89,6 @@ export class DebugLogger {
     this.write(JSON.stringify(cleaned, null, 2) + '\n');
   }
 
-  /** Log the exact AI request payload */
   logAIRequest(stepName: string, original: unknown, candidates: unknown[], systemPrompt: string, userPrompt: string): void {
     const header = `\n── AI REQUEST (step="${stepName}") ────────────────────────────────────────────\n`;
     this.write(header);
@@ -109,14 +98,12 @@ export class DebugLogger {
     this.write(`[CANDIDATE COUNT] ${Array.isArray(candidates) ? candidates.length : '?'}\n`);
   }
 
-  /** Log the AI raw response */
   logAIResponse(stepName: string, response: unknown): void {
     const header = `\n── AI RESPONSE (step="${stepName}") ───────────────────────────────────────────\n`;
     this.write(header);
     this.write(JSON.stringify(response, null, 2) + '\n');
   }
 
-  /** Log the final healing decision */
   logHealResult(stepName: string, oldLocator: string, newLocator: string, confidence: number, reason: string, candidateId?: number): void {
     const header = `\n── HEAL RESULT (step="${stepName}") ────────────────────────────────────────────\n`;
     this.write(header);
@@ -129,8 +116,9 @@ export class DebugLogger {
     this.write(`  Reason      : ${reason}\n`);
   }
 
-  getLogPath(): string { return this.logPath; }
+  getLogPath(): string {
+    return this.logPath;
+  }
 }
 
-// Convenience singleton accessor
 export const logger = DebugLogger.getInstance();

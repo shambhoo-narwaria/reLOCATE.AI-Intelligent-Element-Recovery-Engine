@@ -52,7 +52,7 @@ graph TD
     B -->|Yes| C[Execute Action]:::action
     B -->|No| D[Stabilize Page & Scrape Candidates]:::runner
     D --> E[Construct Element Identity Fingerprints]:::runner
-    E --> F[Align 9 Scoring Rules & Weightings]:::scoring
+    E --> F[Align 11 Scoring Rules & Weightings]:::scoring
     F --> G{Needs AI Fallback?}:::scoring
     G -->|No| H[Apply Best Heuristic Selector]:::scoring
     G -->|Yes| I["Trigger AI Service: OpenAI, Gemini, or VLLM"]:::ai
@@ -69,12 +69,14 @@ graph TD
     *   `LabelTextRule` (Weight 15 — associated label text match)
     *   `RoleRule` (Weight 15 — HTML tag / ARIA role match)
     *   `AncestorPathRule` (Weight 15 — LCS order-aware matching of shadow host chain + ancestor tag path)
-    *   `NearbyTextRule` (Weight 5 — sibling & nearby text match)
+    *   `NearbyTextRule` (Weight 10 — sibling & nearby text match)
     *   `ParentContextRule` (Weight 10 — direct parent tag & ID match)
     *   `DomStructureRule` (Weight 5 — DOM tree depth & index matching)
     *   `ClassNameRule` (Weight 10 — CSS class names matching)
     *   `VisualSimilarityRule` (Weight 20 — visual similarity crop matching)
-4.  **AI Providers (`src/ai/`)**: Formats payloads and requests LLMs using JSON schemas to guarantee return types (`candidateId`, `confidence`, `reason`).
+    *   `CssSelectorRule` (Weight 10 — CSS selector path similarity matching)
+    *   `HorizontalProximityRule` (Weight 5 — horizontal proximity tiebreaker matching)
+4.  **LLM Providers (`src/llm-connectors/`)**: Formats payloads and requests LLMs using JSON schemas to guarantee return types (`candidateId`, `confidence`, `reason`).
 
 ---
 
@@ -112,12 +114,6 @@ npm install
 Execute the test runner on the target application:
 ```bash
 npm start
-```
-
-### Run Simulation Mode
-Runs with mock corrupted locators (e.g. login form elements) to demonstrate automatic locator healing:
-```bash
-npm run simulate
 ```
 
 ---

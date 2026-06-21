@@ -2,7 +2,7 @@ import * as https from 'https';
 import { AIProvider } from '../interfaces/ai-provider.interface';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
-import { logger } from '../logger/debug-logger';
+import { logger } from '../utils/debug-logger';
 
 
 
@@ -32,7 +32,14 @@ function postJson(url: string, body: any): Promise<any> {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             resolve(JSON.parse(data));
           } else {
-            reject(new Error(`HTTP Error Status: ${res.statusCode}. Details: ${data}`));
+            let detailSummary = data;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed?.error?.message) {
+                detailSummary = parsed.error.message.split('\n')[0];
+              }
+            } catch {}
+            reject(new Error(`HTTP Error Status: ${res.statusCode}. Details: ${detailSummary}`));
           }
         } catch (err) {
           reject(err);
@@ -168,8 +175,9 @@ Select the single best matching candidate. Output the result matching the reques
       logger.logAIResponse(resolvedName || 'unknown', parsed);
 
       return parsed;
-    } catch (error) {
-      console.error('[GeminiService] Error communicating with Gemini API:', error);
+    } catch (error: any) {
+      const cleanMsg = error.message ? error.message.split('\n')[0] : String(error);
+      console.error(`[GeminiService] Error communicating with Gemini API: ${cleanMsg}`);
       throw error;
     }
   }

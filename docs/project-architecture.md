@@ -22,7 +22,7 @@ graph TD
     B -->|Yes| C[Apply Highlight & Take Step Screenshot]:::runner
     B -->|No| D[Stabilize Page State]:::runner
     D -->|Scrape Interactive & Custom Elements| E[Candidate Finder]:::browser
-    E -->|Construct Multidimensional Fingerprints| F[Scoring Engine: Apply 9 Rules]:::engine
+    E -->|Construct Multidimensional Fingerprints| F[Scoring Engine: Apply 11 Rules]:::engine
     F -->|Calculate Fingerprint Match Scores| G{Decider: Needs AI Reasoning?}:::engine
     G -->|No: High Confidence / Large Gap| H[Apply Best Heuristic Selector]:::engine
     G -->|Yes: Low Confidence / Close Margin| I["AI Provider: Qwen (vLLM on EC2) / OpenAI / Gemini"]:::ai
@@ -63,7 +63,7 @@ flowchart TD
     CandidateCheck -->|No| RetryWait[Wait 2s & Scrape again: Up to 15 times/30s]:::action
     RetryWait --> Scrape
     
-    CandidateCheck -->|Yes| Score[Apply 9 Scoring Rules & Weightings]:::action
+    CandidateCheck -->|Yes| Score[Apply 11 Scoring Rules & Weightings]:::action
     
     Score --> MaxScoreCheck{Is best candidate score >= 90?}:::condition
     
@@ -102,9 +102,9 @@ flowchart TD
 
 ---
 
-## 3. The 9-Tier Scoring Pipeline
+## 3. The 11-Tier Scoring Pipeline
 
-Before any LLM call is made, the **Scoring Engine** evaluates every single candidate element against **9 distinct metrics**. Each metric calculates a score (0.0 to 1.0) which is multiplied by the rule's weight.
+Before any LLM call is made, the **Scoring Engine** evaluates every single candidate element against **11 distinct metrics**. Each metric calculates a score (0.0 to 1.0) which is multiplied by the rule's weight.
 
 ### Candidate Pool Pruning (Top 10 Selection)
 The orchestrator progressively filters candidate elements through a series of structural, heuristic, and visual stages to prune a raw DOM pool of hundreds down to the **top 10 candidates** (configurable via `AI_MAX_CANDIDATES` in the configuration) before passing them to the AI Reasoning Layer. This progressive pruning drastically reduces token consumption, cuts down API latency/cost, and prevents model confusion. For a detailed breakdown of the complete pruning pipeline, see [Section 5: The Candidate Pruning Pipeline](#5-the-candidate-pruning-pipeline-dom-to-10-candidates).
@@ -121,11 +121,13 @@ graph LR
     A --> R4(AncestorPathRule: Weight 15):::rule
     A --> R5(LabelTextRule: Weight 15):::rule
     A --> R6(ParentContextRule: Weight 10):::rule
-    A --> R7(ClassNameRule: Weight 15):::rule
-    A --> R8(NearbyTextRule: Weight 5):::rule
+    A --> R7(ClassNameRule: Weight 10):::rule
+    A --> R8(NearbyTextRule: Weight 10):::rule
     A --> R9(DomStructureRule: Weight 5):::rule
+    A --> R10(CssSelectorRule: Weight 10):::rule
+    A --> R11(HorizontalProximityRule: Weight 5):::rule
 
-    R1 --> Total[Sum of Weights = Total Score / max 130]:::total
+    R1 --> Total[Sum of Weights = Total Score / max 145]:::total
     R2 --> Total
     R3 --> Total
     R4 --> Total
@@ -134,8 +136,10 @@ graph LR
     R7 --> Total
     R8 --> Total
     R9 --> Total
+    R10 --> Total
+    R11 --> Total
 ```
-##### Detailed Breakdown of the 9-Tier Mathematical Scoring Pipeline
+##### Detailed Breakdown of the 11-Tier Mathematical Scoring Pipeline
 
 The Scoring Engine acts as the mathematical engine of the matching process, separating candidates into structured score coordinates. It computes dynamic alignment coefficients across **Heuristic Lexical & Visual Similarity Models** (evaluating continuous distance metrics) and **Deterministic Tree Topology Equivalence Matchers** (verifying graph geometry constraints).
 
@@ -161,9 +165,17 @@ The Scoring Engine acts as the mathematical engine of the matching process, sepa
     *   **Algorithmic Mechanism**: Implements the **Jaccard Token Index Similarity Coefficient** over class name arrays. It factorizes class strings, strips dynamic framework-generated compilation hashes (e.g., CSS modules, Angular, React dynamic keys), and calculates token-level set similarity.
     *   **Role in Matching**: Styling signature alignment. It matches stylesheet tokens without failing due to dynamic framework re-compilation hash shifts.
 
-*   **`NearbyTextRule` (Weight: 5)**
+*   **`NearbyTextRule` (Weight: 10)**
     *   **Algorithmic Mechanism**: Constructs a **Spatial Textual Neighborhood Array** from surrounding DOM siblings and nearby lines, comparing them via **Edit Distance Normalization & Substring Intersect Matrices**.
     *   **Role in Matching**: Spatial landscape coordinate matching. Uses surrounding textual labels as landmark anchors to locate elements when inline properties are missing.
+
+*   **`CssSelectorRule` (Weight: 10)**
+    *   **Algorithmic Mechanism**: Splits target and candidate selectors by combinator tokens, strips dynamic framework pseudo-classes, and applies the **Longest Common Subsequence (LCS) Sequence Alignment Algorithm** on segment arrays using custom segment similarity weights.
+    *   **Role in Matching**: Path similarity protection. The ultimate tiebreaker for duplicate sibling elements nested in identical structural sub-branches.
+
+*   **`HorizontalProximityRule` (Weight: 5)**
+    *   **Algorithmic Mechanism**: Compares candidate horizontal center coordinate positions against the original element baseline center coordinate and calculates distance decay similarity: $1 / (1 + \Delta X / 100)$.
+    *   **Role in Matching**: Columm/grid tiebreaker. Breaks ties for elements arranged in grid columns robustly across vertical page scroll offsets.
 
 ---
 
@@ -236,7 +248,7 @@ graph TB
 
     subgraph Synthesizer ["3. COGNITIVE MATCHING ENGINE"]
         Sync[Fingerprint Compiler]:::engine
-        Weighting[9-Tier Scoring Rules Engine]:::engine
+        Weighting[11-Tier Scoring Rules Engine]:::engine
         Sync -->|Compile Elements into Structured Signatures| Weighting
     end
 
@@ -394,7 +406,7 @@ flowchart TD
     C -->|No| F["Candidates Pool <= 70"]:::stage
     E --> F
     
-    F --> G["3. Tag/Input Filter & 8-Tier Structural Scoring"]:::stage
+    F --> G["3. Tag/Input Filter & 10-Tier Structural Scoring"]:::stage
     G --> H["Slice Top 20 Candidates"]:::stage
     
     H --> I["4. Visual Verification & Comparison"]:::stage
@@ -407,7 +419,7 @@ flowchart TD
     L --> N
     M --> N
     
-    N --> O["5. Full 9-Tier Scoring Engine"]:::stage
+    N --> O["5. Full 11-Tier Scoring Engine"]:::stage
     O --> P["Slice Top 10 Candidates"]:::stage
     P --> Q["End: AI Provider Layer Input"]:::output
 
@@ -435,8 +447,8 @@ If the candidate pool is still larger than 70 elements, a lightweight keyword an
 5. **Shadow Host Chain Affinity**: Evaluates shadow host overlaps, ensuring that inputs nested inside the correct custom components are kept even if text hits are zero.
 - **Result**: The pool is sliced down to the **top 70 candidates** based on their composite score.
 
-#### Stage 3: 8-Tier Structural Scoring (Pruning to 20 Candidates)
-- **Process**: The runner first restricts the candidate pool using tag-name and input-type filters (supporting shadow host matching for slots). Then, the Scoring Engine evaluates the filtered candidates using the **8 structural/attribute rules** (excluding the visual rule).
+#### Stage 3: 10-Tier Structural Scoring (Pruning to 20 Candidates)
+- **Process**: The runner first restricts the candidate pool using tag-name and input-type filters (supporting shadow host matching for slots). Then, the Scoring Engine evaluates the filtered candidates using the **10 structural/attribute rules** (excluding the visual rule).
 - **Result**: The pool is sorted by score, and the **top 20 candidates** are selected to advance to the next, more expensive stage.
 
 #### Stage 4: Visual Similarity with Area Penalties
@@ -447,7 +459,7 @@ If the candidate pool is still larger than 70 elements, a lightweight keyword an
 - **Result**: Highly similar but oversized layout wrappers are heavily penalized. The similarity scores are mapped back to the candidate objects.
 
 #### Stage 5: Final Selection (Top 10 Candidates)
-- **Process**: The Scoring Engine compiles the final scores using all **9 rules** (including the visual similarity score calculated in Stage 4).
+- **Process**: The Scoring Engine compiles the final scores using all **11 rules** (including the visual similarity score calculated in Stage 4).
 - **Result**: The candidates are sorted, and the **top 10 candidates** are selected (configurable via `AI_MAX_CANDIDATES`).
 - **AI Delivery**: If heuristics are insufficient (margin is low or score is below 90), these final 10 candidates, along with the original element details, are forwarded to the AI provider for strict JSON selection.
 
@@ -501,12 +513,12 @@ graph TD
 
 | Component Name | Role in the System | Code Location |
 | :--- | :--- | :--- |
-| **`TestRunner`** | Coordinates execution. It loops over test steps, handles click/fill timeouts, invokes page-settle stabilization, draws highlights, captures step screenshots in the `report/` folder with the target element highlighted, validates actionability, and executes retries. | [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/test-runner.ts) |
+| **`TestRunner`** | Coordinates execution. It loops over test steps, handles click/fill timeouts, invokes page-settle stabilization, draws highlights, captures step screenshots in the `reports/` folder with the target element highlighted, validates actionability, and executes retries. | [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/test-runner.ts) |
 | **`CandidateFinder`** | Injected script that climbs shadow root nodes and slot boundaries recursively to find valid interactive targets. Stamps elements with unique monotonic IDs. | [`src/runner/candidate-finder.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/candidate-finder.ts) |
-| **`ScoringEngine`** | The mathematical evaluator. It receives the raw candidate list and processes each candidate through the 9 rule-scoring components. | [`src/scoring/scoring.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/scoring/scoring.engine.ts) |
-| **`HealingEngine`** | The brains. Orchestrates the decision matrix, filters candidates based on tag structure, runs pre-scoring, determines if LLM is required, and requests AI services. | [`src/healing/healing.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/healing/healing.engine.ts) |
-| **`AI Services`** | Connects to standard APIs (OpenAI, Google Gemini, OpenRouter, vLLM) using strict structured output configurations to select the best candidate. | [`src/ai/`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/ai/) |
-| **`ElementValidator`** | Runs actionability tests (`isVisible`, `isEnabled`, `isEditable`) on healed locators to ensure they are clickable before execution proceeds. | [`src/runner/element-validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/element-validator.ts) |
-| **`SafetyValidator`** & **`ValidationGates`** | Implements the OOP pre-action safety validation layer. Validates candidate text similarity (Semantic) and shape/edge similarity (Visual) to prevent clicking wrong elements. | [`src/healing/validation/safety.validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/healing/validation/safety.validator.ts) |
+| **`ScoringEngine`** | The mathematical evaluator. It receives the raw candidate list and processes each candidate through the 11 rule-scoring components. | [`src/scoring/scoring.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/scoring/scoring.engine.ts) |
+| **`RecoveryEngine`** | The brains. Orchestrates the decision matrix, filters candidates based on tag structure, runs pre-scoring, determines if LLM is required, and requests AI services. | [`src/recovery-engine/recovery.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/recovery-engine/recovery.engine.ts) |
+| **`AI Services`** | Connects to standard APIs (OpenAI, Google Gemini, OpenRouter, vLLM) using strict structured output configurations to select the best candidate. | [`src/llm-connectors/`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/llm-connectors/) |
+| **`ElementValidator`** | Runs actionability tests (`isVisible`, `isEnabled`, `isEditable`) on healed locators to ensure they are clickable before execution proceeds. | [`src/validation/element.validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/validation/element.validator.ts) |
+| **`SafetyValidator`** & **`ValidationGates`** | Implements the OOP pre-action safety validation layer. Validates candidate text similarity (Semantic) and shape/edge similarity (Visual) to prevent clicking wrong elements. | [`src/validation/safety.validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/validation/safety.validator.ts) |
 
 ---

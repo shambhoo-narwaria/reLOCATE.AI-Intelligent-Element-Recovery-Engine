@@ -2,21 +2,24 @@ import { OpenAI } from 'openai';
 import { AIProvider } from '../interfaces/ai-provider.interface';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
-import { logger } from '../logger/debug-logger';
-
-
+import { logger } from '../utils/debug-logger';
 
 import { cleanObject, cleanCandidate } from '../utils/candidate-cleaner';
 
-export class OpenAIService implements AIProvider {
+export class VLLMService implements AIProvider {
   private openai: OpenAI;
+  private modelName: string;
 
   constructor() {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      console.warn('[OpenAIService] Warning: OPENAI_API_KEY is not defined in environment variables.');
+    const baseURL = process.env.VLLM_BASE_URL;
+    if (!baseURL) {
+      console.warn('[VLLMService] Warning: VLLM_BASE_URL is not defined in environment variables. Defaulting to http://localhost:8000/v1');
     }
-    this.openai = new OpenAI({ apiKey });
+    this.openai = new OpenAI({
+      apiKey: process.env.VLLM_API_KEY || 'dummy-key',
+      baseURL: baseURL || 'http://localhost:8000/v1',
+    });
+    this.modelName = process.env.VLLM_MODEL_NAME || 'Qwen/Qwen2.5-14B-Instruct';
   }
 
   async askAI(original: OriginalElement, candidates: Candidate[]): Promise<{
@@ -24,44 +27,40 @@ export class OpenAIService implements AIProvider {
     confidence: number;
     reason: string;
   }> {
-    // ── Original element signal summary (using flat parameter set recorded in testcases)
-    // Pre-parse shadow host tags from the original's XPath arrays for easier AI comparison
+    // ── Original element signal summary
     const shadowDomHostTags = (original.ShadowDomFullXpathArray || [])
       .flatMap((xpath: string) =>
         xpath.split('/').filter(Boolean)
           .map(seg => seg.replace(/\[\d+\]/g, '').toUpperCase().trim())
-          .filter(tag => tag.includes('-'))  // only custom elements
+          .filter(tag => tag.includes('-'))
       );
 
     const resolvedName = (original.LocText || original.LocTitle || original.OwnInnerText || '').trim();
 
     const cleanedOriginal = cleanObject({
-      objectName:          resolvedName,
-      tagName:             original.OrigTagName         || '',
-      id:                  original.LocId              || '',
-      name:                original.LocName            || '',
-      className:           original.LocClassName        || '',
-      role:                original.role               || '',
-      inputType:           original.LocType || original.inputType || '',
-      interactionType:     original.interactionType    || original.Action || '',
-      accessibleName:      resolvedName,
-      locValue:            original.LocValue            || '',
-      labelText:           original.labelText          || '',
-      parentTag:           original.parentTag          || '',
-      parentId:            original.parentId           || '',
-      indexInParent:       original.indexInParent,
-      domDepth:            original.domDepth,
-      nearbyText:          (original.NearByText || original.nearbyText || []).slice(0, 4),
-      cssSelector:         original.LocCssSelector     || '',
-      fullXpath:           original.FullLocXpath || original.fullXpath || original.LocXpath || '',
+      objectName: resolvedName,
+      tagName: original.OrigTagName || '',
+      id: original.LocId || '',
+      name: original.LocName || '',
+      className: original.LocClassName || '',
+      role: original.role || '',
+      inputType: original.LocType || original.inputType || '',
+      interactionType: original.interactionType || original.Action || '',
+      accessibleName: resolvedName,
+      locValue: original.LocValue || '',
+      labelText: original.labelText || '',
+      parentTag: original.parentTag || '',
+      parentId: original.parentId || '',
+      indexInParent: original.indexInParent,
+      domDepth: original.domDepth,
+      nearbyText: (original.NearByText || original.nearbyText || []).slice(0, 4),
+      cssSelector: original.LocCssSelector || '',
+      fullXpath: original.FullLocXpath || original.fullXpath || original.LocXpath || '',
       shadowDomFullXpathArray: original.ShadowDomFullXpathArray || [],
-      // Pre-parsed custom element tags from the shadow DOM XPath — directly comparable to candidate's shadowHostChain
-      shadowDomHostTags:   shadowDomHostTags.length > 0 ? [...new Set(shadowDomHostTags)] : undefined,
+      shadowDomHostTags: shadowDomHostTags.length > 0 ? [...new Set(shadowDomHostTags)] : undefined,
     }) || {};
 
-    // ── Candidate signal summary (flat structure matching recorded properties)
-    // Token-optimized: removed nearbyText (noisy), cssSelector (unhelpful), xpath (empty).
-    // Added shadowHostChain, tableContext, landmarkRole, headingContext for better disambiguation.
+    // ── Candidate signal summary
     const cleanedCandidates = candidates.map(c => cleanCandidate(c));
 
     const systemPrompt = `You are an expert AI element healing system for web UI automation.
@@ -72,7 +71,7 @@ Evaluation criteria (in priority order):
    *Dynamic Text*: Dropdown/select triggers may show the currently selected value (e.g. 'Active') instead of the default placeholder/label (e.g. 'Status'). Prioritize matching the host component over exact text match.
 2. FUNCTIONAL match: Does the tagName, role, id, name, or inputType match?
    *CRITICAL — Shadow-internal IDs are NOT unique*: IDs like 'shadow-container', 'inner-wrapper', 'content-slot' repeat across every instance of a web component. When multiple candidates share the same id, disambiguate by accessibleName match against the original's ObjectName. Do NOT select based on id alone.
-   *CRITICAL — Dynamic IDs & Attributes*: IDs or framework-generated attributes/classes containing random hashes, suffixes, or dynamic numbers are dynamic and change across page reloads/sessions. Do NOT penalize a mismatch on these dynamic IDs/classes; instead, focus on the static/semantic parts of the ID or class.
+   *CRITICAL — Dynamic IDs & Attributes*: IDs like 'cdk-overlay-X', 'mat-option-Y', or framework-generated attributes/classes containing random hashes or prefixes (e.g., '_ngcontent-...') are dynamic and change across page reloads/sessions. Do NOT penalize a mismatch on these dynamic IDs/classes; instead, focus on the static/semantic parts of the ID or class.
 3. BEHAVIORAL match: Does the interactionType (click/fill/check/select) match?
 4. SHADOW HOST CHAIN match (VERY IMPORTANT): The candidate's 'shadowHostChain' lists ALL custom element ancestors from outermost to innermost. The original's 'shadowDomHostTags' lists the custom element tags extracted from its XPath. Compare these two lists: the correct candidate's shadowHostChain should have the highest overlap with the original's shadowDomHostTags. A candidate nested inside the same web component hierarchy as the original is far more likely to be correct.
 5. CONTEXTUAL match: Do parentTag, ancestorTagNames, landmarkRole, or headingContext align?
@@ -87,7 +86,7 @@ Output your response as a valid JSON object ONLY (no markdown, no explanation ou
   "reason": "string (concise explanation of why this candidate was chosen)"
 }`;
 
-const userPrompt = `Original Element Metadata:
+    const userPrompt = `Original Element Metadata:
 ${JSON.stringify(cleanedOriginal, null, 2)}
 
 Candidate Pool (${cleanedCandidates.length} candidates):
@@ -95,7 +94,7 @@ ${JSON.stringify(cleanedCandidates, null, 2)}
 
 Select the single best matching candidate. Output ONLY the JSON object.`;
 
-    // ── Write full AI request to debug file ──────────────────────────────────
+    // ── Write full AI request to debug file
     logger.logAIRequest(
       resolvedName || 'unknown',
       cleanedOriginal,
@@ -105,18 +104,18 @@ Select the single best matching candidate. Output ONLY the JSON object.`;
     );
 
     const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: this.modelName,
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userPrompt   },
+        { role: 'user', content: userPrompt },
       ],
       response_format: { type: 'json_object' },
     });
 
     const content = response?.choices?.[0]?.message?.content || '{}';
-    const parsed  = JSON.parse(content);
+    const parsed = JSON.parse(content);
 
-    // ── Write AI response to debug file ──────────────────────────────────────
+    // ── Write AI response to debug file
     logger.logAIResponse(resolvedName || 'unknown', parsed);
 
     return parsed;

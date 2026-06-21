@@ -1,7 +1,7 @@
 import { Page, Locator } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '../logger/debug-logger';
+import { logger } from './debug-logger';
 
 /**
  * Pre-crops the original template image from the full screenshot and saves it to the visual-debug folder.

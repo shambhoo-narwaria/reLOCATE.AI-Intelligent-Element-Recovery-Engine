@@ -5,13 +5,13 @@ import * as path from 'path';
 dotenv.config({ path: path.resolve(__dirname, './.env') });
 
 // Import Interfaces and Services
-import { OpenAIService } from './src/ai/openai.service';
-import { GeminiService } from './src/ai/gemini.service';
-import { VLLMService } from './src/ai/vllm.service';
-import { OpenRouterService } from './src/ai/openrouter.service';
+import { OpenAIService } from './src/llm-connectors/openai.service';
+import { GeminiService } from './src/llm-connectors/gemini.service';
+import { VLLMService } from './src/llm-connectors/vllm.service';
+import { OpenRouterService } from './src/llm-connectors/openrouter.service';
 import { ScoringEngine } from './src/scoring/scoring.engine';
-import { HealingEngine } from './src/healing/healing.engine';
-import { SemanticValidationGate, VisualValidationGate, SafetyValidator } from './src/healing/validation/safety.validator';
+import { RecoveryEngine } from './src/recovery-engine/recovery.engine';
+import { SemanticValidationGate, VisualValidationGate, SafetyValidator } from './src/validation/safety.validator';
 
 // Import Rules
 import { ObjectNameRule } from './src/scoring/rules/object-name.rule';
@@ -28,7 +28,9 @@ import { HorizontalProximityRule } from './src/scoring/rules/horizontal-proximit
 
 // Import Runner components
 import { CandidateFinder } from './src/runner/candidate-finder';
-import { ElementValidator } from './src/runner/element-validator';
+import { ElementValidator } from './src/validation/element.validator';
+import { StatusOverlay } from './src/runner/status-overlay';
+import { RecoveryPipeline } from './src/runner/recovery-pipeline';
 import { TestRunner } from './src/runner/test-runner';
 
 async function bootstrap() {
@@ -51,45 +53,51 @@ async function bootstrap() {
 
   // 2. Instantiate and Register Scoring Rules (OCP / LSP)
   const rules = [
-    new ObjectNameRule(),       // weight 30 – object name / text
-    new LabelTextRule(),        // weight 15 – associated labels
-    new RoleRule(),             // weight 15 – tag / ARIA role
-    new AncestorPathRule(),     // weight 15 – shadow host chain + ancestor path
-    new NearbyTextRule(),       // weight  5 – sibling & nearby text
-    new ParentContextRule(),    // weight 10 – parent tag / id
-    new DomStructureRule(),     // weight  5 – DOM depth & index
-    new ClassNameRule(),        // weight 15 – CSS class matching
-    new VisualSimilarityRule(), // weight 20 – visual similarity matching
-    new CssSelectorRule(),      // weight 10 – CSS selector path similarity matching
-    new HorizontalProximityRule(), // weight 5 – horizontal proximity tiebreaker matching
+    new ObjectNameRule(),         // weight 30 – object name / text
+    new LabelTextRule(),          // weight 15 – associated labels
+    new RoleRule(),               // weight 15 – tag / ARIA role
+    new AncestorPathRule(),       // weight 15 – shadow host chain + ancestor path
+    new NearbyTextRule(),         // weight 10 – sibling & nearby text
+    new ParentContextRule(),      // weight 10 – parent tag / id
+    new DomStructureRule(),       // weight 5 – DOM depth & index
+    new ClassNameRule(),          // weight 10 – CSS class matching
+    new VisualSimilarityRule(),   // weight 20 – visual similarity matching
+    new CssSelectorRule(),        // weight 10 – CSS selector path similarity matching
+    new HorizontalProximityRule(),// weight 5 – horizontal proximity tiebreaker matching
   ];
   
   const scoringEngine = new ScoringEngine(rules);
 
   // 2b. Instantiate Validation Gates & Safety Validator (SOLID/OOP architecture)
   const validationGates = [
-    new SemanticValidationGate(0.25),
+    new SemanticValidationGate(0.30),
     new VisualValidationGate(0.15)
   ];
   const safetyValidator = new SafetyValidator(validationGates);
 
   // 3. Instantiate Healer Orchestrator
-  const healingEngine = new HealingEngine(aiProvider, scoringEngine, safetyValidator);
+  const recoveryEngine = new RecoveryEngine(aiProvider, scoringEngine, safetyValidator);
 
   // 4. Instantiate Runner components
   const candidateFinder = new CandidateFinder();
   const elementValidator = new ElementValidator();
-
-  const testRunner = new TestRunner(
-    healingEngine,
+  const statusOverlay = new StatusOverlay();
+  const recoveryPipeline = new RecoveryPipeline(
+    recoveryEngine,
     candidateFinder,
-    elementValidator
+    elementValidator,
+    statusOverlay
   );
 
-  // 5. Detect simulation and usehealing modes and execute test runner
-  const isSimulation = process.argv.includes('--simulate');
+  const testRunner = new TestRunner(
+    recoveryEngine,
+    statusOverlay,
+    recoveryPipeline
+  );
+
+  // 5. Detect usehealing mode and execute test runner
   const useHealing = process.argv.includes('--usehealing');
-  await testRunner.run(isSimulation, useHealing);
+  await testRunner.run(useHealing);
 }
 
 // Run the bootstrap routine

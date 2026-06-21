@@ -20,7 +20,7 @@ reLOCATE.AI/
 │   ├── ai-payload-details.md     # In-depth AI payload and JSON schema details
 │   └── project-architecture.md   # Visual decision flowchart and architecture guide
 └── src/
-    ├── ai/
+    ├── llm-connectors/
     │   ├── openai.service.ts     # OpenAI GPT-4o integration
     │   └── gemini.service.ts     # Google Gemini API REST integration
     ├── interfaces/               # Strong typing & OOP contracts
@@ -28,24 +28,26 @@ reLOCATE.AI/
     │   ├── candidate.interface.ts
     │   ├── healing-result.interface.ts
     │   └── original-element.interface.ts
-    ├── healing/
-    │   └── healing.engine.ts     # Decision orchestrator (Rules vs AI layer)
-    ├── logger/
-    │   └── debug-logger.ts       # Structured file-mirror debugger
+    ├── recovery-engine/
+    │   └── recovery.engine.ts     # Decision orchestrator (Rules vs AI layer)
     ├── runner/
     │   ├── candidate-finder.ts   # Shadow-DOM & slot-aware candidate scraper
-    │   ├── element-validator.ts  # Actionability validation guard
     │   └── test-runner.ts        # Playwright loop, highlights, & state machine
-    └── scoring/
-        ├── scoring.engine.ts     # Candidate scoring pipeline
-        └── rules/                # Metric rules scoring components
-            ├── similarity.helper.ts
-            ├── object-name.rule.ts
-            ├── label-text.rule.ts
-            ├── role.rule.ts
-            ├── nearby-text.rule.ts
-            ├── parent-context.rule.ts
-            └── dom-structure.rule.ts
+    ├── scoring/
+    │   ├── scoring.engine.ts     # Candidate scoring pipeline
+    │   └── rules/                # Metric rules scoring components
+    │       ├── similarity.helper.ts
+    │       ├── object-name.rule.ts
+    │       ├── label-text.rule.ts
+    │       ├── role.rule.ts
+    │       ├── nearby-text.rule.ts
+    │       ├── parent-context.rule.ts
+    │       └── dom-structure.rule.ts
+    ├── validation/
+    │   ├── safety.validator.ts    # Pre-action safety validation gates & original locator semantic check
+    │   └── element.validator.ts   # Actionability validation guard
+    └── utils/
+        └── debug-logger.ts       # Structured file-mirror debugger
 ```
 
 ---
@@ -84,7 +86,7 @@ Some elements (like `IMG` tags) may initially have `opacity: 0` or `width=0` due
 ## 2. Dynamic Rule-Based Scoring Engine
 Location: [`src/scoring/scoring.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/scoring/scoring.engine.ts)
 
-Before deciding to invoke the LLM, the candidates are scored using nine dedicated metric rules.
+Before deciding to invoke the LLM, the candidates are scored using eleven dedicated metric rules.
 
 | Rule Component | Weight | Matching Criteria / Logic |
 | :--- | :---: | :--- |
@@ -92,16 +94,18 @@ Before deciding to invoke the LLM, the candidates are scored using nine dedicate
 | **`LabelTextRule`** | **15** | Matches associated forms or field labels using the **Levenshtein Distance Metric**. |
 | **`RoleRule`** | **15** | Matches `tagName` and ARIA `role` via **Direct String Equality Matchers**. **Shadow Host tag matching bonus**: Grants `80%` of this weight if the candidate's tag matches one of the shadow hosts in the original element's `ShadowDomHostArray`. |
 | **`AncestorPathRule`**| **15** | Calculates structural sequence alignment matching using the **Longest Common Subsequence (LCS) Algorithm** on shadow host chains and DOM tag sequences. |
-| **`NearbyTextRule`** | **5**  | Compares sibling texts and layout neighbors using **Levenshtein String Distance** to confirm visual neighborhood. |
+| **`NearbyTextRule`** | **10** | Compares sibling texts and layout neighbors using **Levenshtein String Distance** to confirm visual neighborhood. |
 | **`ParentContextRule`**| **10** | Scores based on parent tag name and parent element ID alignment using **Direct String Equality**. |
 | **`DomStructureRule`** | **5**  | Scores based on DOM nesting depth and relative sibling index using a **Numerical Difference Ratio Algorithm**. |
 | **`ClassNameRule`** | **10** | Scores CSS class token similarity using the **Jaccard Token Index Similarity Algorithm**, filtering out framework-specific dynamic styling hashes. |
 | **`VisualSimilarityRule`**| **20** | Compares physical element crops against recorded visual templates using a **Weighted Jaccard Similarity Algorithm on Box-Blurred Edge Maps**. **Strict Layout Penalties**: Applies heavy point reductions (-0.5x for 5x area difference, -1.0x for 10x area difference) to prevent massive layout containers from masquerading as smaller interactive elements. |
+| **`CssSelectorRule`** | **10** | Scores candidates based on how closely their full CSS selector path matches the original element's CSS selector. This is the ultimate tiebreaker for duplicate elements in identical structural branches. |
+| **`HorizontalProximityRule`**| **5** | Scores candidates based on their horizontal coordinate proximity to the original element. Helps break ties for identical candidates arranged in column/grid layouts (e.g. OD vs OS columns). |
 
 ---
 
 ## 3. Decision Orchestrator
-Location: [`src/healing/healing.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/healing/healing.engine.ts)
+Location: [`src/recovery-engine/recovery.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/recovery-engine/recovery.engine.ts)
 
 The orchestrator receives the scraped candidate pool, applies pre-filters (tag-name fallback for shadow hosts, input type constraints, and role matches), and runs the scoring engine. Before accepting a candidate, it runs **pre-action safety validation gates**:
 
@@ -119,7 +123,7 @@ const needsAI = !!original.forceAI || bestMatch.score < 90 || (runnerUp && (best
 ---
 
 ## 4. AI Reasoning Layer & API Clients
-Location: [`src/ai/openai.service.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/ai/openai.service.ts), [`src/ai/gemini.service.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/ai/gemini.service.ts)
+Location: [`src/llm-connectors/openai.service.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/llm-connectors/openai.service.ts), [`src/llm-connectors/gemini.service.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/llm-connectors/gemini.service.ts)
 
 For a detailed breakdown of the request properties (the clean Original Element and Candidate Pool model fields) and concrete examples, refer to the [AI Payload Details Guide](file:///c:/Users/shaam/Desktop/AIElementIdentification/docs/ai-payload-details.md).
 
@@ -209,6 +213,6 @@ To maintain maximum performance and prevent browser memory bloat (Chrome Out of 
 * **The Slot Challenge**: In Web Components (Shadow DOM), `<slot>` elements are layout placeholders. The test recorder may record the target as a `<slot>` element, but since slots are non-interactive and are excluded from candidate scraping, strict tag-name filtering would result in an empty candidate pool.
 * **The Solution**: 
   1. In `test-runner.ts`, if the target is `"SLOT"`, the tag-name hard constraint is bypassed during candidate scraping and filtering.
-  2. In `healing.engine.ts` (Step 2a), the system filters the pool using the original element's `shadowHostTags` (extracted from the shadow DOM host chain).
+  2. In `recovery.engine.ts` (Step 2a), the system filters the pool using the original element's `shadowHostTags` (extracted from the shadow DOM host chain).
   3. This ensures that only custom wrapper elements belonging to the correct component tree (e.g. `ZUI-SELECT-BUTTON-V3-17`) are evaluated, retaining high performance while successfully healing dynamic slot-based controls.
 

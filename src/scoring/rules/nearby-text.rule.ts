@@ -25,12 +25,11 @@ export class NearbyTextRule implements ScoringRule {
       candidate.ancestorContext.parentText,
     ].filter(Boolean).map(s => s.toLowerCase().trim());
 
-    // Get unique 3 nearest texts
+    // Get all unique nearest texts
     const candNearby: string[] = [];
     for (const text of rawCandNearby) {
       if (text && !candNearby.includes(text)) {
         candNearby.push(text);
-        if (candNearby.length === 3) break;
       }
     }
 

@@ -57,7 +57,7 @@ graph TD
     G -->|No| H[Apply Best Heuristic Selector]:::scoring
     G -->|Yes| I["Trigger AI Service: OpenAI, Gemini, or VLLM"]:::ai
     I --> J[Select Top Candidate]:::ai
-    H --> K["Inject [data-ai-healed-id] Locator"]:::action
+    H --> K[Resolve CSS Selector or Healed ID Fallback]:::action
     J --> K
     K -->|Visual Highlight| L[Perform Action & Log Output]:::action
 ```
@@ -123,5 +123,5 @@ npm start
 A detailed log is generated under `logs/healing-debug-YYYY-MM-DDTHH-MM-SS.log` for every session. It documents:
 *   Initial locator failures and loading delays.
 *   The system prompt and formatted candidates list payload sent to the AI.
-*   Raw AI output and final healed selector (`[data-ai-healed-id="X"]`).
+*   Raw AI output and final resolved locator (CSS selector with Healed ID fallback).
 *   Execution outcome and performance metrics (Confidence levels, execution count, healing accuracy).

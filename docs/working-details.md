@@ -178,14 +178,14 @@ sequenceDiagram
     Note over AI: Performs semantic matchmaking using JSON schema
     AI-->>H: 5. Return selected candidateId (e.g. 4)
     H-->>R: Return resolved candidate locator path
-    R->>B: 6. Locate & Highlight element [data-ai-healed-id="4"]
+    R->>B: 6. Locate & Highlight element (CSS selector or data-ai-healed-id Fallback)
     R->>B: 7. Execute Interaction (Click/Fill)
 ```
 
 1. **DOM Stamping**: When candidate elements are extracted from the page (including shadow DOMs), they are modified in-place inside the browser DOM by adding a unique attribute: `el.setAttribute('data-ai-healed-id', String(candidateId))`.
 2. **Fingerprint Packaging**: These candidate IDs, alongside their structural, spatial, and semantic fingerprints, are forwarded to the orchestrator.
 3. **Intelligent LLM Query**: If heuristics alone are insufficient, the candidate pool and original element metadata are sent to the LLM. The prompt instructs the LLM to analyze the candidate pool and return only the `candidateId` of the matching element.
-4. **Dynamic Recovery**: Playwright uses the resolved ID (e.g., `page.locator('[data-ai-healed-id="4"]')`) to execute the action, bypassing fragile selector paths.
+4. **Dynamic Recovery**: Playwright uses the candidate's computed CSS selector (falling back to the unique ID `[data-ai-healed-id="X"]` if the CSS selector is not visible or is detached) to execute the action, bypassing fragile selector paths.
 
 ---
 
@@ -194,7 +194,7 @@ Location: [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElement
 
 1. **Page Stabilization**: If an element is missing, the runner pauses to wait for active loaders/skeletons to hide and DOM mutations to settle (via a MutationObserver stability check) before scraping.
 2. **Domain Protection**: Checks the protocol, hostname, and port of the current page. If the domain changed entirely (a different site), it halts healing to prevent false-positive clicks.
-3. **Attribute Insertion**: When a candidate is scanned, its DOM node is stamped with a unique monotonic ID: `el.setAttribute('data-ai-healed-id', String(uniqueId))`. The `uniqueId` is derived from a persistent monotonic counter on the browser's `window` object (`window.__ai_healing_counter__`). This ensures that every scanned candidate receives a globally unique locator ID across all steps of the test case, even in Single Page Applications (SPAs) where DOM nodes from previous steps remain in memory and could otherwise cause selector collisions. The new locator becomes `[data-ai-healed-id="X"]`.
+3. **Attribute Insertion**: When a candidate is scanned, its DOM node is stamped with a unique monotonic ID: `el.setAttribute('data-ai-healed-id', String(uniqueId))`. The `uniqueId` is derived from a persistent monotonic counter on the browser's `window` object (`window.__ai_healing_counter__`). This ensures that every scanned candidate receives a globally unique locator ID across all steps of the test case, even in Single Page Applications (SPAs) where DOM nodes from previous steps remain in memory and could otherwise cause selector collisions. The resolved locator primarily uses the candidate's computed CSS selector, falling back to `[data-ai-healed-id="X"]` if the CSS selector is not visible or is detached.
 4. **Visual Highlights**: Bounding box coordinates are queried, and a red border overlay is drawn around the target element for `600ms` so testers can visually verify what the runner is about to click.
 5. **Action Guard**: If the target element is disabled, the runner warns and skips to prevent execution timeouts, ensuring clean execution of the test suite.
 6. **Action Retry Loop**: If an action fails because the element became detached or invisible immediately before the click (e.g., due to a layout shift or a cookie banner animating out), the runner intercepts the execution error, waits 1.5 seconds for layout stabilization, and completely restarts the candidate extraction and healing process from scratch.

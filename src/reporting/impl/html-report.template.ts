@@ -375,6 +375,18 @@ export class HtmlReportTemplate {
       letter-spacing: 0.02em;
     }
 
+    .ai-invoked-badge {
+      background: linear-gradient(135deg, #a855f7, #ec4899);
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      letter-spacing: 0.02em;
+      box-shadow: 0 2px 4px rgba(168, 85, 247, 0.25);
+    }
+
     .expand-arrow {
       color: var(--text-muted);
       transition: transform 0.2s ease;
@@ -931,6 +943,7 @@ export class HtmlReportTemplate {
           </div>
           <div class="step-status-tags">
             ${step.healed ? `<span class="healed-badge">Healed</span>` : ''}
+            ${step.triggeredAI ? `<span class="ai-invoked-badge">AI Invoked</span>` : ''}
             <span class="status-pill ${step.status.toLowerCase()}">${step.status}</span>
             <span class="expand-arrow">▼</span>
           </div>

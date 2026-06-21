@@ -170,6 +170,17 @@ export class RecoveryEngine {
     const maxAiCandidates = config.AI_MAX_CANDIDATES || 10;
     const topScoredCandidates = scoredPool.slice(0, maxAiCandidates);
 
+    // Log candidate neighborhood for the top candidates
+    const origNearby = ((original.NearByText || original.nearbyText || []) as string[]).slice(0, 3).map(s => String(s).toLowerCase().trim());
+    if (origNearby.length > 0) {
+      topScoredCandidates.forEach(item => {
+        logger.debug(
+          `[NearbyTextRule] Candidate [ID ${item.candidate.candidateId}] ("${item.candidate.semantic.accessibleName || ''}") - Comparing original nearby text [${origNearby.join(', ')}] with candidate neighborhood:`,
+          item.candidate.neighborhood
+        );
+      });
+    }
+
     // Log the top candidates to the debug file for manual inspection if enabled
     if (config.LOG_CANDIDATES) {
       const debugPayload = topScoredCandidates.map(item => ({

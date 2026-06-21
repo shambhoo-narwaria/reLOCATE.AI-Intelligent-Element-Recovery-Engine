@@ -270,15 +270,11 @@ export class StatusOverlay {
       this.originalTitle = await page.title().catch(() => '');
     }
 
-    const titlePrefix = this.currentObjectName
-      ? `[reLOCATE.AI (${this.currentObjectName}): ${simpleText}] `
-      : `[reLOCATE.AI: ${simpleText}] `;
+    const titlePrefix = this.currentObjectName ? `[reLOCATE.AI] - ${this.currentObjectName} ` : `[reLOCATE.AI] `;
 
     await page.evaluate((prefix) => {
-      const domCount = document.querySelectorAll('*').length;
-      const resolvedPrefix = prefix.replace('{{DOM_COUNT}}', String(domCount));
       const cleanTitle = document.title.replace(/^\[reLOCATE\.AI[^\]]*\]\s*/, '');
-      document.title = resolvedPrefix + cleanTitle;
+      document.title = prefix + cleanTitle;
     }, titlePrefix);
   }
 

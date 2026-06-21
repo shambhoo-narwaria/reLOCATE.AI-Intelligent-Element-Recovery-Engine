@@ -27,7 +27,7 @@ graph TD
     G -->|No: High Confidence / Large Gap| H[Apply Best Heuristic Selector]:::engine
     G -->|Yes: Low Confidence / Close Margin| I["AI Provider: Qwen (vLLM on EC2) / OpenAI / Gemini"]:::ai
     I -->|Strict JSON Selection| J[Select Chosen Candidate]:::ai
-    H --> K[Stamp data-ai-healed-id Attribute]:::browser
+    H --> K[Resolve CSS Selector or data-ai-healed-id Fallback]:::browser
     J --> K
     K -->|Draw Highlight & Save step-xx.png to report/| L[Validate Element Actionability]:::runner
     C --> M[Execute Click/Fill]:::runner
@@ -76,7 +76,7 @@ flowchart TD
     TriggerAI --> AISelect[LLM returns selected candidateId, confidence, and reason]:::aiAction
     AISelect --> AISafety{AI Candidate passes Safety Gates?}:::condition
     
-    AISafety -->|Yes| TargetStamp[Stamp element with unique monotonic ID]:::action
+    AISafety -->|Yes| TargetStamp[Resolve CSS Selector or data-ai-healed-id Fallback]:::action
     AISafety -->|No| EvaluateCandidates
     
     EvaluateCandidates --> LoopSafety{Candidate #1, #2, or #3 passes Safety Gates?}:::condition

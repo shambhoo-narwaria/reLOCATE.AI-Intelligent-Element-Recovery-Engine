@@ -14,7 +14,7 @@ import { highlightAndScreenshot } from '../utils/visual-utils';
 import { waitForPageSettle } from '../utils/page-stabilizer';
 
 export class TestRunner {
-  private readonly testCasePath = path.resolve(__dirname, '../../Testcase/AstroTestcase.json');
+  private readonly testCasePath = path.resolve(__dirname, '../../Testcase/ZeissTestcase.json');
   private useHealing = false;
   private outcomes: StepOutcome[] = [];
 
@@ -191,7 +191,7 @@ export class TestRunner {
             } else {
               console.warn(`[TestRunner] Healing/Validation process failed on attempt 1: ${msg}. Waiting 4s and retrying...`);
               await this.statusOverlay.show(page, 'STABILIZE');
-              await waitForPageSettle(page, 15000);
+              await waitForPageSettle(page, 30000);
               await this.statusOverlay.show(page, 'RETRYING');
               await page.waitForTimeout(4000);
               continue;
@@ -503,6 +503,16 @@ export class TestRunner {
           if (candFile) {
             fs.copyFileSync(path.join(debugDir, candFile), path.join(stepFolder, `step-${padIndex}-healed.png`));
           }
+
+          // Copy all top candidates' crop images for the scoring matrix table
+          if (outcome.topCandidates && Array.isArray(outcome.topCandidates)) {
+            for (const cand of outcome.topCandidates) {
+              const fileForCand = files.find((f) => f.startsWith(`candidate_${cand.candidateId}_score_`));
+              if (fileForCand) {
+                fs.copyFileSync(path.join(debugDir, fileForCand), path.join(stepFolder, `candidate-${cand.candidateId}.png`));
+              }
+            }
+          }
         } catch (err: any) {
           console.warn(`[TestRunner] Failed to copy candidate crop: ${err.message}`);
         }
@@ -601,7 +611,7 @@ export class TestRunner {
 
     await this.statusOverlay.show(page, 'STABILIZE');
 
-    await waitForPageSettle(page, 15000);
+    await waitForPageSettle(page, 30000);
     await this.statusOverlay.show(page, 'RETRYING');
     el = await this.tryOriginalLocators(page, step, 5000);
 

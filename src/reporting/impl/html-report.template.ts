@@ -1056,6 +1056,7 @@ export class HtmlReportTemplate {
                     ${Object.keys(ruleWeights).map(rule => `
                     <th style="text-align: center;" title="${rule} (Weight: ${ruleWeights[rule]})">${rule.replace('Rule', '')}<br><span style="font-size: 0.6rem; color: var(--text-muted); font-weight: normal;">w:${ruleWeights[rule]}</span></th>
                     `).join('')}
+                    <th style="text-align: center; width: 90px;">Visual Crop</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1080,6 +1081,16 @@ export class HtmlReportTemplate {
                     <td class="matrix-cell-score ${heatClass}">${Math.round(normScore * 100)}%</td>
                     `;
                     }).join('')}
+                    <td style="text-align: center; vertical-align: middle; padding: 4px;">
+                      <div style="display: inline-flex; justify-content: center; align-items: center; height: 32px; width: 70px; background-color: var(--card-bg-secondary); border-radius: 4px; overflow: hidden; border: 1px solid var(--border-color);">
+                        <img src="step-${padIndex}/candidate-${cand.candidateId}.png" 
+                             style="max-height: 30px; max-width: 66px; object-fit: contain; cursor: pointer; display: block;"
+                             onclick="openScreenshotModal(this.src); event.stopPropagation();"
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" 
+                             alt="Crop">
+                        <span style="display: none; font-size: 0.6rem; color: var(--text-muted); font-weight: normal;">N/A</span>
+                      </div>
+                    </td>
                   </tr>
                     `;
                   }).join('')}

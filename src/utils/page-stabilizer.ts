@@ -13,33 +13,30 @@ const LOADER_SELECTORS = [
   '[data-test*="skeleton"]'
 ];
 
-const ABSOLUTE_MAX_DURATION_MS = 30000;       // 30s absolute maximum execution time limit
 const DOM_SETTLE_SILENCE_WINDOW_MS = 400;     // Time window of absolute silence required (no DOM changes)
-const MIN_DOM_STABILITY_TIMEOUT_MS = 1000;    // Minimum time budget allowed for checking DOM mutations
+const MIN_DOM_STABILITY_TIMEOUT_MS = 3000;    // Minimum time budget allowed for checking DOM mutations
 
 /**
  * Stabilizes the page state by waiting for dynamic loading screens to hide,
  * and checking browser DOM mutation frequency until changes fully settle.
- * Capped at a maximum execution time of 30 seconds.
+ * Capped at a maximum execution time of timeoutMs.
  */
-export async function waitForPageSettle(page: Page, timeoutMs = 15000): Promise<void> {
+export async function waitForPageSettle(page: Page, timeoutMs = 30000): Promise<void> {
   if (page.isClosed()) {
     logger.debug('[PageStabilizer] Aborting stabilization: Page is closed.');
     return;
   }
 
   const startTime = Date.now();
-  console.log(`[PageStabilizer] Page stabilization started at ${new Date(startTime).toLocaleTimeString()}`);
   logger.debug(`[PageStabilizer] Page stabilization started at ${new Date(startTime).toLocaleTimeString()}`);
 
   try {
     // Phase 1: Wait for visible loaders/spinners/skeletons to disappear
-    const phase1Start = Date.now();
     for (const selector of LOADER_SELECTORS) {
       if (page.isClosed()) return;
 
       const elapsed = Date.now() - startTime;
-      const remainingTime = ABSOLUTE_MAX_DURATION_MS - elapsed - 4000;
+      const remainingTime = timeoutMs - elapsed - 4000;
       
       if (remainingTime <= 0) {
         logger.debug('[PageStabilizer] Hard-limit budget reached. Skipping remaining loader checks.');
@@ -48,25 +45,49 @@ export async function waitForPageSettle(page: Page, timeoutMs = 15000): Promise<
 
       try {
         const loader = page.locator(selector).first();
-        if (await loader.isVisible()) {
-          logger.debug(`[PageStabilizer] Active loader detected: "${selector}". Awaiting transition to hidden...`);
+        const isLoaderVisible = await loader.isVisible();
+        
+        if (isLoaderVisible) {
+          const isInteractive = await loader.evaluate(el => {
+            const interactiveTags = ['BUTTON', 'INPUT', 'A', 'SELECT', 'TEXTAREA'];
+            if (interactiveTags.includes(el.tagName)) return true;
+            const role = el.getAttribute('role');
+            if (role === 'button' || role === 'link') return true;
+            return false;
+          }).catch(() => false);
+
+          if (isInteractive) continue;
+
+          const isWrapperOrContainer = await loader.evaluate(el => {
+            const className = (el.className || '').toLowerCase();
+            const id = (el.id || '').toLowerCase();
+            const combined = className + ' ' + id;
+            const containerKeywords = ['wrapper', 'container', 'box', 'holder', 'parent', 'block', 'layout', 'zone'];
+            return containerKeywords.some(kw => combined.includes(kw));
+          }).catch(() => false);
+
+          if (isWrapperOrContainer) continue;
+
+          const text = await loader.innerText().catch(() => '');
+          if (text.trim().length > 150) continue;
+
           const maxWait = Math.min(3000, remainingTime);
+          logger.debug(`[PageStabilizer] Active loader detected: "${selector}". Awaiting transition to hidden...`);
           await page.waitForSelector(selector, { state: 'hidden', timeout: maxWait });
         }
       } catch (err) {
         // Ignored: Loader timed out or got detached from DOM tree during wait
       }
     }
-    const phase1Duration = Date.now() - phase1Start;
+
     if (page.isClosed()) {
       logger.debug('[PageStabilizer] Aborting stabilization: Page closed after loader loop.');
       return;
     }
 
     // Phase 2: Monitor DOM activity and wait for mutations to settle
-    const phase2Start = Date.now();
     const elapsed = Date.now() - startTime;
-    const remainingDomWait = Math.max(MIN_DOM_STABILITY_TIMEOUT_MS, ABSOLUTE_MAX_DURATION_MS - elapsed);
+    const remainingDomWait = Math.max(MIN_DOM_STABILITY_TIMEOUT_MS, timeoutMs - elapsed);
 
     logger.debug(`[PageStabilizer] Monitoring DOM stability (max wait: ${remainingDomWait}ms)...`);
     
@@ -115,29 +136,23 @@ export async function waitForPageSettle(page: Page, timeoutMs = 15000): Promise<
       },
       { silenceWindow: DOM_SETTLE_SILENCE_WINDOW_MS, maxWait: remainingDomWait }
     );
-    const phase2Duration = Date.now() - phase2Start;
 
     // Phase 3: Force layout engine calculation (reflow check)
-    const phase3Start = Date.now();
     await page.evaluate(() => {
       if (document.body) {
         document.body.getBoundingClientRect();
       }
     });
-    const phase3Duration = Date.now() - phase3Start;
 
     const totalDuration = Date.now() - startTime;
-    console.log(`[PageStabilizer] Page stabilization successfully completed. Total duration: ${totalDuration}ms`);
     logger.debug(`[PageStabilizer] Page stabilization successfully completed. Total duration: ${totalDuration}ms`);
   } catch (err: any) {
     const errorMsg = err.message || String(err);
     const totalDuration = Date.now() - startTime;
     if (errorMsg.includes('closed') || errorMsg.includes('Target page, context or browser has been closed')) {
-      console.log(`[PageStabilizer] Aborting stabilization: Browser context was closed. (after ${totalDuration}ms)`);
       logger.debug(`[PageStabilizer] Aborting stabilization: Browser context was closed. (after ${totalDuration}ms)`);
       return;
     }
-    console.log(`[PageStabilizer] Stabilization wait encountered an error (after ${totalDuration}ms): ${errorMsg}`);
     logger.debug(`[PageStabilizer] Stabilization wait encountered an error (after ${totalDuration}ms): ${errorMsg}`);
   }
 }

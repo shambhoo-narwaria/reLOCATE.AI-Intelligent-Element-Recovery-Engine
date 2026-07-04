@@ -27,6 +27,42 @@ if (fs.existsSync(releaseDir)) {
 }
 fs.mkdirSync(releaseDir);
 
+// Cache portable Node.js binaries
+const { execSync } = require('child_process');
+const binCacheDir = path.join(rootDir, 'bin_cache');
+
+if (!fs.existsSync(binCacheDir)) {
+  console.log('Downloading and extracting portable Node.js (Windows x64) to cache...');
+  const nodeZipUrl = 'https://nodejs.org/dist/v18.20.4/node-v18.20.4-win-x64.zip';
+  const tempZipPath = path.join(rootDir, 'node_temp.zip');
+  const tempExtractPath = path.join(rootDir, 'node_temp_extracted');
+  
+  try {
+    // Download using PowerShell
+    execSync(`powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${nodeZipUrl}' -OutFile '${tempZipPath}'"`, { stdio: 'inherit' });
+    
+    // Extract using PowerShell
+    if (fs.existsSync(tempExtractPath)) fs.rmSync(tempExtractPath, { recursive: true, force: true });
+    execSync(`powershell -Command "Expand-Archive -Path '${tempZipPath}' -DestinationPath '${tempExtractPath}'"`, { stdio: 'inherit' });
+    
+    // Move extracted folder contents to bin_cache
+    const extractedSubdir = path.join(tempExtractPath, 'node-v18.20.4-win-x64');
+    copyDirSync(extractedSubdir, binCacheDir);
+    
+    // Clean up temp files
+    fs.rmSync(tempZipPath, { force: true });
+    fs.rmSync(tempExtractPath, { recursive: true, force: true });
+    console.log('Portable Node.js cached successfully.');
+  } catch (error) {
+    console.error('Failed to set up portable Node.js cache:', error.message);
+    process.exit(1);
+  }
+}
+
+// Copy cached Node.js bin to release bin
+console.log('Packaging portable Node.js binaries into release...');
+copyDirSync(binCacheDir, path.join(releaseDir, 'bin'));
+
 // 1. Copy dist/
 console.log('Copying dist/ directory...');
 const distSrc = path.join(rootDir, 'dist');
@@ -70,18 +106,9 @@ fs.writeFileSync(path.join(releaseDir, '.env.example'), envContent);
 console.log('Writing run.bat...');
 const runBatContent = `@echo off
 echo ==========================================================
-echo           reLOCATE.AI - Client Runner
+echo           reLOCATE.AI - Zero-Install Client Runner
 echo ==========================================================
 echo.
-
-:: Check for Node.js
-where node >nul 2>nul
-if %errorlevel% neq 0 (
-    echo [ERROR] Node.js is not installed or not in your PATH.
-    echo Please install Node.js v18 or higher and try again.
-    pause
-    exit /b 1
-)
 
 :: Check for .env file
 if not exist .env (
@@ -93,17 +120,17 @@ if not exist .env (
     exit /b 1
 )
 
-echo [1/2] Installing production dependencies and Playwright browsers...
-call npm install --omit=dev
+echo [1/2] Preparing execution environment (this may take a minute on the first run)...
+call .\\bin\\npm.cmd install --omit=dev --no-audit --no-fund --loglevel=error > nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] npm install failed.
+    echo [ERROR] Environment setup failed. Please check your internet connection and try again.
     pause
     exit /b %errorlevel%
 )
 
 echo.
 echo [2/2] Running the application...
-call npm start
+call .\\bin\\node.exe dist\\runner.js
 
 pause
 `;
@@ -149,35 +176,23 @@ fs.writeFileSync(path.join(releaseDir, 'run.sh'), runShContent);
 
 // 7. Write README.md
 console.log('Writing README.md...');
-const readmeContent = `# reLOCATE.AI Client Release
+const readmeContent = `# reLOCATE.AI - Client Release
 
-This directory contains the production-ready compiled release of the reLOCATE.AI element recovery system.
+This directory contains the production release package of the reLOCATE.AI element recovery engine.
 
 ## Setup Instructions
 
-1. **Install Node.js**: Ensure you have Node.js version 18 or above installed on your system.
-2. **Setup Environment Variables**:
-   - Copy or rename \`.env.example\` to \`.env\`.
-   - Open \`.env\` and insert your AI Provider keys (e.g., \`GEMINI_API_KEY\`, \`OPENAI_API_KEY\`, or \`OPENROUTER_API_KEY\`).
-   - Configure the \`AI_PROVIDER\` variable (e.g., \`gemini\` or \`openai\`).
+1. **Configure Environment**:
+   - Copy or rename \`.env.example\` to \`.env\` in this directory.
+   - Open \`.env\` in any text editor and fill in your API credentials (e.g., \`GEMINI_API_KEY\`, \`OPENAI_API_KEY\`, etc.) and set your preferred \`AI_PROVIDER\`.
 
-## Running the Product
-
-### On Windows
-Double-click the \`run.bat\` file, or open a Command Prompt / PowerShell in this directory and execute:
-\`\`\`cmd
-run.bat
-\`\`\`
-
-### On Linux / macOS
-Open a terminal in this directory and run:
-\`\`\`bash
-chmod +x run.sh
-./run.sh
-\`\`\`
-
----
-*Note: The runner will automatically download the Chromium browser binary required by Playwright on its first execution.*
+2. **Execution**:
+   - **On Windows**: Simply double-click the \`run.bat\` file to start.
+   - **On Linux / macOS**: Run the \`run.sh\` script in your terminal:
+     \`\`\`bash
+     chmod +x run.sh
+     ./run.sh
+     \`\`\`
 `;
 fs.writeFileSync(path.join(releaseDir, 'README.md'), readmeContent);
 

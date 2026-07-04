@@ -14,6 +14,7 @@ npm-debug.log*
 # TypeScript build outputs
 dist/
 out/
+bin_cache/
 
 
 # System files

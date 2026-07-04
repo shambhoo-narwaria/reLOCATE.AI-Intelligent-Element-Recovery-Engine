@@ -2,7 +2,7 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 // Load config from the root folder .env file
-dotenv.config({ path: path.resolve(__dirname, './.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 // Import Interfaces and Services
 import { OpenAIService } from './src/llm-connectors/openai.service';

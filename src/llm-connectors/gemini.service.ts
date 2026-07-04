@@ -136,9 +136,6 @@ ${JSON.stringify(cleanedCandidates, null, 2)}
 
 Select the single best matching candidate. Output the result matching the requested JSON schema.`;
 
-    // ── Log request via debug logger ──────────────────────────────────
-    logger.logAIRequest(resolvedName || 'unknown', cleanedOriginal, cleanedCandidates, systemPrompt, userPrompt);
-
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
@@ -165,6 +162,9 @@ Select the single best matching candidate. Output the result matching the reques
         }
       }
     };
+
+    // ── Log request via debug logger ──────────────────────────────────
+    logger.logAIRequest(resolvedName || 'unknown', cleanedOriginal, cleanedCandidates, systemPrompt, userPrompt, payload);
 
     try {
       const response = await postJson(url, payload);

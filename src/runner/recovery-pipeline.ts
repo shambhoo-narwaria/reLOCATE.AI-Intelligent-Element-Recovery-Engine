@@ -42,10 +42,17 @@ export class RecoveryPipeline implements IRecoveryPipeline {
 
     try {
       // --- Attempt 1: Full healing cycle ---
-      const firstAttempt = await this.runHealingCycle(page, step, stepIndex);
+      let firstAttempt;
+      let firstAttemptErr: any = null;
+      try {
+        firstAttempt = await this.runHealingCycle(page, step, stepIndex);
+      } catch (err: any) {
+        firstAttemptErr = err;
+        console.warn(`[RecoveryPipeline] Healing cycle attempt 1 failed safety validation or encountered error: ${err.message || err}. Re-running full healing cycle from scratch...`);
+      }
 
       // If validation passed on first attempt, return immediately
-      if (firstAttempt.validationPassed) {
+      if (firstAttempt && firstAttempt.validationPassed) {
         await this.statusOverlay.show(page, 'COMPLETE');
         await page.waitForTimeout(1000).catch(() => { });
 
@@ -62,30 +69,35 @@ export class RecoveryPipeline implements IRecoveryPipeline {
         };
       }
 
-      // --- Attempt 2: Validation failed — re-run full healing cycle from scratch ---
-      console.warn(`[RecoveryPipeline] Validation failed on first healing attempt for "${step.ObjectName}". Re-running full healing cycle...`);
+      // --- Attempt 2: Validation failed or error occurred on Attempt 1 ---
+      console.warn(`[RecoveryPipeline] Attempt 1 did not complete successfully. Re-running full healing cycle...`);
       try {
-        await waitForPageSettle(page, 10000);
+        await waitForPageSettle(page, 10000, this.statusOverlay);
       } catch { /* page may be closed */ }
 
       let secondAttempt;
       try {
         secondAttempt = await this.runHealingCycle(page, step, stepIndex);
       } catch (retryErr: any) {
-        // Second healing cycle itself failed — fall back to first attempt's element
-        console.warn(`[RecoveryPipeline] Re-healing cycle failed: ${retryErr.message || retryErr}. Proceeding with first attempt's element anyway.`);
-        await this.statusOverlay.show(page, 'COMPLETE').catch(() => {});
-        return {
-          locator: firstAttempt.locator,
-          oldLocator: originalLocator,
-          newLocator: firstAttempt.healResult.healedLocator,
-          didHeal: true,
-          triggeredAI: firstAttempt.healResult.triggeredAI,
-          confidence: firstAttempt.healResult.confidence,
-          reason: firstAttempt.healResult.reason + ' (validation failed, re-healing also failed)',
-          candidateId: firstAttempt.healResult.candidateId,
-          topCandidates: firstAttempt.topCandidates
-        };
+        // Second healing cycle itself failed — fall back to first attempt's element if we have one
+        if (firstAttempt) {
+          console.warn(`[RecoveryPipeline] Re-healing cycle failed: ${retryErr.message || retryErr}. Proceeding with first attempt's element anyway.`);
+          await this.statusOverlay.show(page, 'COMPLETE').catch(() => {});
+          return {
+            locator: firstAttempt.locator,
+            oldLocator: originalLocator,
+            newLocator: firstAttempt.healResult.healedLocator,
+            didHeal: true,
+            triggeredAI: firstAttempt.healResult.triggeredAI,
+            confidence: firstAttempt.healResult.confidence,
+            reason: firstAttempt.healResult.reason + ' (validation failed, re-healing also failed)',
+            candidateId: firstAttempt.healResult.candidateId,
+            topCandidates: firstAttempt.topCandidates
+          };
+        } else {
+          console.error(`[RecoveryPipeline] Both healing attempts failed safety validation or hard errors. First: ${firstAttemptErr?.message || firstAttemptErr}, Second: ${retryErr.message || retryErr}`);
+          throw firstAttemptErr || retryErr;
+        }
       }
 
       if (!secondAttempt.validationPassed) {
@@ -661,7 +673,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
       await page.waitForTimeout(3000);
     } catch { /* page closed */ }
 
-    await waitForPageSettle(page, 30000);
+    await waitForPageSettle(page, 30000, this.statusOverlay);
 
     // Scrape DOM and filter loading states/skeletons/internal elements
     let candidates = await this.scrapeAndFilterCandidates(page, step);
@@ -773,7 +785,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
         if (retries > 0 && isNavErr) {
           console.warn(`[RecoveryPipeline] findCandidates failed due to navigation/context destruction: ${msg}. Waiting 8s for page layout to settle and retrying (${retries} retries left)...`);
           await this.statusOverlay.show(page, 'STABILIZE');
-          await waitForPageSettle(page, 8000);
+          await waitForPageSettle(page, 8000, this.statusOverlay);
           await this.statusOverlay.show(page, 'SCRAPE');
           continue;
         }

@@ -1,5 +1,6 @@
 import { Page } from 'playwright';
 import { logger } from './debug-logger';
+import { StatusOverlay } from '../runner/status-overlay';
 
 // Common loader selectors to check for page loading spinners, skeletons, or overlay blocks
 const LOADER_SELECTORS = [
@@ -13,7 +14,7 @@ const LOADER_SELECTORS = [
   '[data-test*="skeleton"]'
 ];
 
-const DOM_SETTLE_SILENCE_WINDOW_MS = 400;     // Time window of absolute silence required (no DOM changes)
+const DOM_SETTLE_SILENCE_WINDOW_MS = 600;     // Time window of absolute silence required (no DOM changes)
 const MIN_DOM_STABILITY_TIMEOUT_MS = 3000;    // Minimum time budget allowed for checking DOM mutations
 
 /**
@@ -21,7 +22,7 @@ const MIN_DOM_STABILITY_TIMEOUT_MS = 3000;    // Minimum time budget allowed for
  * and checking browser DOM mutation frequency until changes fully settle.
  * Capped at a maximum execution time of timeoutMs.
  */
-export async function waitForPageSettle(page: Page, timeoutMs = 30000): Promise<void> {
+export async function waitForPageSettle(page: Page, timeoutMs = 30000, statusOverlay?: StatusOverlay): Promise<void> {
   if (page.isClosed()) {
     logger.debug('[PageStabilizer] Aborting stabilization: Page is closed.');
     return;
@@ -71,7 +72,7 @@ export async function waitForPageSettle(page: Page, timeoutMs = 30000): Promise<
           const text = await loader.innerText().catch(() => '');
           if (text.trim().length > 150) continue;
 
-          const maxWait = Math.min(3000, remainingTime);
+          const maxWait = Math.min(35000, remainingTime);
           logger.debug(`[PageStabilizer] Active loader detected: "${selector}". Awaiting transition to hidden...`);
           await page.waitForSelector(selector, { state: 'hidden', timeout: maxWait });
         }
@@ -136,6 +137,28 @@ export async function waitForPageSettle(page: Page, timeoutMs = 30000): Promise<
       },
       { silenceWindow: DOM_SETTLE_SILENCE_WINDOW_MS, maxWait: remainingDomWait }
     );
+
+    // Phase 2.5: Wait for all image elements to complete loading
+    try {
+      const remainingTime = timeoutMs - (Date.now() - startTime);
+      if (remainingTime > 0) {
+        const imageTimeout = Math.min(4000, remainingTime);
+        logger.debug(`[PageStabilizer] Awaiting image resources to load (max wait: ${imageTimeout}ms)...`);
+
+        // Wait for image resources to load
+        await statusOverlay?.show(page, 'IMAGELOAD');
+
+        // Wait for image elements to complete loading
+        await page.waitForFunction(() => {
+          const images = Array.from(document.querySelectorAll('img'));
+          return images.every(img => img.complete);
+        }, { timeout: imageTimeout }).catch(() => {
+          logger.debug('[PageStabilizer] Image loading wait timed out or was bypassed.');
+        });
+      }
+    } catch (imgErr) {
+      // Ignored
+    }
 
     // Phase 3: Force layout engine calculation (reflow check)
     await page.evaluate(() => {

@@ -95,23 +95,26 @@ ${JSON.stringify(cleanedCandidates, null, 2)}
 
 Select the single best matching candidate. Output ONLY the JSON object.`;
 
+    const payload = {
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system' as const, content: systemPrompt },
+        { role: 'user' as const,   content: userPrompt   },
+      ],
+      response_format: { type: 'json_object' } as const,
+    };
+
     // ── Write full AI request to debug file ──────────────────────────────────
     logger.logAIRequest(
       resolvedName || 'unknown',
       cleanedOriginal,
       cleanedCandidates,
       systemPrompt,
-      userPrompt
+      userPrompt,
+      payload
     );
 
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userPrompt   },
-      ],
-      response_format: { type: 'json_object' },
-    });
+    const response = await this.openai.chat.completions.create(payload);
 
     const content = response?.choices?.[0]?.message?.content || '{}';
     const parsed  = JSON.parse(content);

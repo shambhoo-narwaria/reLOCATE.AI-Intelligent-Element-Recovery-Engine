@@ -99,13 +99,23 @@ ${JSON.stringify(cleanedCandidates, null, 2)}
 
 Select the single best matching candidate. Output ONLY the JSON object.`;
 
+    const payload = {
+      model: this.modelName,
+      messages: [
+        { role: 'system' as const, content: systemPrompt },
+        { role: 'user' as const, content: userPrompt },
+      ],
+      response_format: { type: 'json_object' } as const,
+    };
+
     // ── Write full AI request to debug file
     logger.logAIRequest(
       resolvedName || 'unknown',
       cleanedOriginal,
       cleanedCandidates,
       systemPrompt,
-      userPrompt
+      userPrompt,
+      payload
     );
 
     // ── Retry loop with exponential back-off ──────────────────────────────
@@ -125,14 +135,10 @@ Select the single best matching candidate. Output ONLY the JSON object.`;
 
         let response: any;
         try {
-          response = await (this.openai.chat.completions.create as any)({
-            model: this.modelName,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            response_format: { type: 'json_object' },
-          }, { signal: controller.signal });
+          response = await (this.openai.chat.completions.create as any)(
+            payload,
+            { signal: controller.signal }
+          );
         } finally {
           clearTimeout(timeoutHandle);
         }

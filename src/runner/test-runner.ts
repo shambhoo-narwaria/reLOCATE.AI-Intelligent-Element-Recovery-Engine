@@ -14,7 +14,7 @@ import { highlightAndScreenshot } from '../utils/visual-utils';
 import { waitForPageSettle } from '../utils/page-stabilizer';
 
 export class TestRunner {
-  private readonly testCasePath = path.resolve(__dirname, '../../Testcase/ZeissTestcase.json');
+  private readonly testCasePath = path.resolve(process.cwd(), 'Testcase/ZeissTestcase.json');
   private useHealing = false;
   private outcomes: StepOutcome[] = [];
 
@@ -138,7 +138,8 @@ export class TestRunner {
     try {
       console.log(`[TestRunner] Navigating to: ${step.InputData}`);
       await page.goto(step.InputData, { waitUntil: 'load', timeout: 60000 });
-      console.log(`[TestRunner] Navigation complete.`);
+      console.log(`[TestRunner] Navigation complete. Waiting for page to settle...`);
+      await waitForPageSettle(page, 30000, this.statusOverlay);
       this.recordOutcome(index, step.Action, step.ObjectName || 'Navigation Step', 'Passed', false, step.InputData, step.InputData);
     } catch (navErr: any) {
       this.recordOutcome(index, step.Action, step.ObjectName || 'Navigation Step', 'Failed', false, step.InputData, step.InputData, navErr.message || String(navErr));
@@ -155,6 +156,9 @@ export class TestRunner {
     let healedResultForReport: any = null;
 
     try {
+      console.log(`[TestRunner] Waiting for page to settle before interaction step...`);
+      await waitForPageSettle(page, 30000, this.statusOverlay);
+
       for (let attempt = 1; attempt <= 2; attempt++) {
         let result;
         
@@ -191,7 +195,7 @@ export class TestRunner {
             } else {
               console.warn(`[TestRunner] Healing/Validation process failed on attempt 1: ${msg}. Waiting 4s and retrying...`);
               await this.statusOverlay.show(page, 'STABILIZE');
-              await waitForPageSettle(page, 30000);
+              await waitForPageSettle(page, 30000, this.statusOverlay);
               await this.statusOverlay.show(page, 'RETRYING');
               await page.waitForTimeout(4000);
               continue;
@@ -257,8 +261,10 @@ export class TestRunner {
     // Perform click/fill action
     if (step.Action === 'Click') {
       await this.performClickAction(element, result.newLocator, candIdStr);
+      console.log(`[TestRunner] Waiting for network to be idle after click (max 5s)...`);
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
     } else if (step.Action === 'Enter') {
-      await this.performFillAction(element, result.newLocator, step.InputData || '', candIdStr);
+      await this.performFillAction(page, element, result.newLocator, step.InputData || '', candIdStr);
     }
 
     if (result.didHeal) {
@@ -297,9 +303,15 @@ export class TestRunner {
   /**
    * Performs input fill operations.
    */
-  private async performFillAction(element: Locator, newLocator: string, data: string, candIdStr: string): Promise<void> {
+  private async performFillAction(page: Page, element: Locator, newLocator: string, data: string, candIdStr: string): Promise<void> {
     console.log(`[TestRunner] Filling input element "${newLocator}"${candIdStr} with text: "${data}"`);
     await element.fill(data);
+    console.log(`[TestRunner] Waiting 500ms for input debounce to trigger network requests...`);
+    await page.waitForTimeout(500).catch(() => {});
+    console.log(`[TestRunner] Waiting for network to be idle after input fill (max 5s)...`);
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    console.log(`[TestRunner] Waiting for page to settle after input fill (max 5s)...`);
+    await waitForPageSettle(page, 5000, this.statusOverlay);
   }
 
   /**
@@ -564,7 +576,7 @@ export class TestRunner {
 
     this.statusOverlay.setObjectName(step.ObjectName || '');
 
-    const shouldForceAI = [12].includes(stepIndex) || this.useHealing;
+    const shouldForceAI = [2, 3, 4, 5].includes(stepIndex) || this.useHealing;
 
     if (!shouldForceAI) {
       await this.statusOverlay.show(page, 'LOCATING');
@@ -611,7 +623,7 @@ export class TestRunner {
 
     await this.statusOverlay.show(page, 'STABILIZE');
 
-    await waitForPageSettle(page, 30000);
+    await waitForPageSettle(page, 30000, this.statusOverlay);
     await this.statusOverlay.show(page, 'RETRYING');
     el = await this.tryOriginalLocators(page, step, 5000);
 

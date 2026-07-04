@@ -89,13 +89,17 @@ export class DebugLogger {
     this.write(JSON.stringify(cleaned, null, 2) + '\n');
   }
 
-  logAIRequest(stepName: string, original: unknown, candidates: unknown[], systemPrompt: string, userPrompt: string): void {
+  logAIRequest(stepName: string, original: unknown, candidates: unknown[], systemPrompt: string, userPrompt: string, apiPayload?: unknown): void {
     const header = `\n── AI REQUEST (step="${stepName}") ────────────────────────────────────────────\n`;
     this.write(header);
     this.write(`[SYSTEM PROMPT]\n${systemPrompt}\n\n`);
     this.write(`[USER PROMPT]\n${userPrompt}\n\n`);
     this.write(`[ORIGINAL ELEMENT]\n${JSON.stringify(original, null, 2)}\n\n`);
+    this.write(`[CANDIDATES]\n${JSON.stringify(candidates, null, 2)}\n\n`);
     this.write(`[CANDIDATE COUNT] ${Array.isArray(candidates) ? candidates.length : '?'}\n`);
+    if (apiPayload !== undefined) {
+      this.write(`\n[API PAYLOAD]\n${JSON.stringify(apiPayload, null, 2)}\n\n`);
+    }
   }
 
   logAIResponse(stepName: string, response: unknown): void {

@@ -4,6 +4,7 @@ import { logger } from '../utils/debug-logger';
 // Type definitions for overlay phases and positioning
 export type OverlayPhase =
   | 'STABILIZE'
+  | 'IMAGELOAD'
   | 'SCRAPE'
   | 'PRUNE'
   | 'VISUAL'
@@ -53,6 +54,10 @@ const HEALING_PHASES: Record<OverlayPhase, { simple: string; tough: string }> = 
   STABILIZE: {
     simple: "Waiting for entire page to settle...",
     tough: "Awaiting stable DOM layout state..."
+  },
+  IMAGELOAD: {
+    simple: "Wait for Loading image elements...",
+    tough: "Awaiting image resource resolution..."
   },
   SCRAPE: {
     simple: "Locating target page element...",
@@ -246,7 +251,6 @@ export class StatusOverlay {
       const overlaps = (candLeft < ovRight && candRight > ovLeft && candTop < ovBottom && candBottom > ovTop);
       if (overlaps) {
         this.currentAlign = 'left';
-        logger.debug(`[StatusOverlay] Candidate overlaps with top-right overlay. Relocating overlay to bottom-left.`);
       }
     } else {
       const ovLeft = 20;
@@ -257,7 +261,6 @@ export class StatusOverlay {
       const overlaps = (candLeft < ovRight && candRight > ovLeft && candTop < ovBottom && candBottom > ovTop);
       if (overlaps) {
         this.currentAlign = 'right';
-        logger.debug(`[StatusOverlay] Candidate overlaps with bottom-left overlay. Relocating overlay to top-right.`);
       }
     }
   }

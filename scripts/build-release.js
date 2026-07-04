@@ -23,9 +23,13 @@ const releaseDir = path.join(rootDir, 'out');
 
 console.log('Cleaning old out folder...');
 if (fs.existsSync(releaseDir)) {
-  fs.rmSync(releaseDir, { recursive: true, force: true });
+  const entries = fs.readdirSync(releaseDir);
+  for (const entry of entries) {
+    fs.rmSync(path.join(releaseDir, entry), { recursive: true, force: true });
+  }
+} else {
+  fs.mkdirSync(releaseDir);
 }
-fs.mkdirSync(releaseDir);
 
 // Cache portable Node.js binaries
 const { execSync } = require('child_process');
@@ -217,10 +221,12 @@ else
     NPM_EXEC="$LOCAL_NPM"
 fi
 
-# Ensure executable permissions on local node if we are using it
+# Ensure executable permissions and prepend to PATH if we are using local portable Node.js
 if [ "$NODE_EXEC" = "$LOCAL_NODE" ]; then
     chmod +x "$LOCAL_NODE"
     chmod +x "$LOCAL_NPM"
+    LOCAL_BIN_ABS_DIR=$(cd "$LOCAL_BIN_DIR/bin" && pwd)
+    export PATH="$LOCAL_BIN_ABS_DIR:$PATH"
 fi
 
 # Install production dependencies silently

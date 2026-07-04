@@ -585,12 +585,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
 
           if (candW <= 0 || candH <= 0) return { similarity: 0 };
 
-          const scaledW = candW * scaleOrig;
-          const scaledH = candH * scaleOrig;
-          const dx = (targetW - scaledW) / 2;
-          const dy = (targetH - scaledH) / 2;
-
-          ctxCand.drawImage(imgCurr, candLeft, candTop, candW, candH, dx, dy, scaledW, scaledH);
+          ctxCand.drawImage(imgCurr, candLeft, candTop, candW, candH, 0, 0, targetW, targetH);
           const dataCand = ctxCand.getImageData(0, 0, targetW, targetH).data;
 
           const grayCand = getGrayscale(dataCand);

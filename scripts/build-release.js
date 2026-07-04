@@ -25,7 +25,11 @@ console.log('Cleaning old out folder...');
 if (fs.existsSync(releaseDir)) {
   const entries = fs.readdirSync(releaseDir);
   for (const entry of entries) {
-    fs.rmSync(path.join(releaseDir, entry), { recursive: true, force: true });
+    try {
+      fs.rmSync(path.join(releaseDir, entry), { recursive: true, force: true });
+    } catch (e) {
+      console.warn(`[Warning] Could not clean "${entry}" inside out folder: ${e.message}`);
+    }
   }
 } else {
   fs.mkdirSync(releaseDir);
@@ -165,13 +169,16 @@ LOCAL_BIN_DIR="./bin/node-portable"
 LOCAL_NODE="$LOCAL_BIN_DIR/bin/node"
 LOCAL_NPM="$LOCAL_BIN_DIR/bin/npm"
 
+echo "[1/2] Preparing execution environment (this may take a minute on the first run)..."
+
 if [ ! -f "$LOCAL_NODE" ]; then
     # Fallback to global node if present
     if command -v node &> /dev/null; then
         NODE_EXEC="node"
         NPM_EXEC="npm"
+        NPX_EXEC="npx"
     else
-        echo "[1/2] Preparing execution environment (this may take a minute on the first run)..."
+        echo "  -> Downloading portable Node.js runtime..."
         
         # Determine Node.js download URL based on OS and architecture
         if [ "$OS_TYPE" = "Linux" ]; then
@@ -215,22 +222,25 @@ if [ ! -f "$LOCAL_NODE" ]; then
         rm "$TEMP_ARCHIVE"
         NODE_EXEC="$LOCAL_NODE"
         NPM_EXEC="$LOCAL_NPM"
+        NPX_EXEC="$LOCAL_BIN_DIR/bin/npx"
     fi
 else
     NODE_EXEC="$LOCAL_NODE"
     NPM_EXEC="$LOCAL_NPM"
+    NPX_EXEC="$LOCAL_BIN_DIR/bin/npx"
 fi
 
 # Ensure executable permissions and prepend to PATH if we are using local portable Node.js
 if [ "$NODE_EXEC" = "$LOCAL_NODE" ]; then
     chmod +x "$LOCAL_NODE"
     chmod +x "$LOCAL_NPM"
+    chmod +x "$NPX_EXEC"
     LOCAL_BIN_ABS_DIR=$(cd "$LOCAL_BIN_DIR/bin" && pwd)
     export PATH="$LOCAL_BIN_ABS_DIR:$PATH"
 fi
 
 # Install production dependencies silently
-echo "[1/2] Preparing execution environment (this may take a minute on the first run)..."
+echo "  -> Installing dependencies and browser libraries..."
 "$NPM_EXEC" install --omit=dev --no-audit --no-fund --loglevel=error > npm_install.log 2>&1
 INSTALL_STATUS=$?
 if [ $INSTALL_STATUS -ne 0 ]; then
@@ -242,6 +252,12 @@ if [ $INSTALL_STATUS -ne 0 ]; then
     exit $INSTALL_STATUS
 fi
 rm -f npm_install.log
+
+# On Linux, install missing system dependencies for Playwright browsers automatically
+if [ "$OS_TYPE" = "Linux" ]; then
+    echo "Installing required system libraries (requires sudo privileges)..."
+    "$NPX_EXEC" playwright install-deps
+fi
 
 echo ""
 echo "[2/2] Running the application..."

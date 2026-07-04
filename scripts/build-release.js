@@ -140,17 +140,9 @@ fs.writeFileSync(path.join(releaseDir, 'run.bat'), runBatContent);
 console.log('Writing run.sh...');
 const runShContent = `#!/bin/bash
 echo "=========================================================="
-echo "          reLOCATE.AI - Client Runner"
+echo "          reLOCATE.AI - Zero-Install Client Runner"
 echo "=========================================================="
 echo ""
-
-# Check for Node.js
-if ! command -v node &> /dev/null
-then
-    echo "[ERROR] Node.js is not installed or not in your PATH."
-    echo "Please install Node.js (v18+) and try again."
-    exit 1
-fi
 
 # Check for .env file
 if [ ! -f .env ]; then
@@ -161,16 +153,87 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-echo "[1/2] Installing production dependencies and Playwright browser binaries..."
-npm install --omit=dev
+# Detect OS and architecture
+OS_TYPE=$(uname -s)
+ARCH_TYPE=$(uname -m)
+
+LOCAL_BIN_DIR="./bin/node-portable"
+LOCAL_NODE="$LOCAL_BIN_DIR/bin/node"
+LOCAL_NPM="$LOCAL_BIN_DIR/bin/npm"
+
+if [ ! -f "$LOCAL_NODE" ]; then
+    # Fallback to global node if present
+    if command -v node &> /dev/null; then
+        NODE_EXEC="node"
+        NPM_EXEC="npm"
+    else
+        echo "[1/2] Preparing execution environment (this may take a minute on the first run)..."
+        
+        # Determine Node.js download URL based on OS and architecture
+        if [ "$OS_TYPE" = "Linux" ]; then
+            if [ "$ARCH_TYPE" = "x86_64" ]; then
+                NODE_URL="https://nodejs.org/dist/v18.20.4/node-v18.20.4-linux-x64.tar.xz"
+            elif [ "$ARCH_TYPE" = "aarch64" ] || [ "$ARCH_TYPE" = "arm64" ]; then
+                NODE_URL="https://nodejs.org/dist/v18.20.4/node-v18.20.4-linux-arm64.tar.xz"
+            fi
+        elif [ "$OS_TYPE" = "Darwin" ]; then
+            if [ "$ARCH_TYPE" = "x86_64" ]; then
+                NODE_URL="https://nodejs.org/dist/v18.20.4/node-v18.20.4-darwin-x64.tar.gz"
+            elif [ "$ARCH_TYPE" = "arm64" ]; then
+                NODE_URL="https://nodejs.org/dist/v18.20.4/node-v18.20.4-darwin-arm64.tar.gz"
+            fi
+        fi
+
+        if [ -z "$NODE_URL" ]; then
+            echo "[ERROR] Unsupported platform: $OS_TYPE $ARCH_TYPE. Please install Node.js (v18+) manually."
+            exit 1
+        fi
+
+        # Download and extract Node.js
+        mkdir -p "$LOCAL_BIN_DIR"
+        TEMP_ARCHIVE="node_temp_archive"
+        
+        if command -v curl &> /dev/null; then
+            curl -sL "$NODE_URL" -o "$TEMP_ARCHIVE"
+        elif command -v wget &> /dev/null; then
+            wget -qO "$TEMP_ARCHIVE" "$NODE_URL"
+        else
+            echo "[ERROR] Neither curl nor wget is installed. Please install curl or wget, or install Node.js manually."
+            exit 1
+        fi
+
+        if [[ "$NODE_URL" == *.tar.xz ]]; then
+            tar -xJf "$TEMP_ARCHIVE" -C "$LOCAL_BIN_DIR" --strip-components=1
+        else
+            tar -xzf "$TEMP_ARCHIVE" -C "$LOCAL_BIN_DIR" --strip-components=1
+        fi
+        
+        rm "$TEMP_ARCHIVE"
+        NODE_EXEC="$LOCAL_NODE"
+        NPM_EXEC="$LOCAL_NPM"
+    fi
+else
+    NODE_EXEC="$LOCAL_NODE"
+    NPM_EXEC="$LOCAL_NPM"
+fi
+
+# Ensure executable permissions on local node if we are using it
+if [ "$NODE_EXEC" = "$LOCAL_NODE" ]; then
+    chmod +x "$LOCAL_NODE"
+    chmod +x "$LOCAL_NPM"
+fi
+
+# Install production dependencies silently
+echo "[1/2] Preparing execution environment (this may take a minute on the first run)..."
+"$NPM_EXEC" install --omit=dev --no-audit --no-fund --loglevel=error > /dev/null 2>&1
 if [ $? -ne 0 ]; then
-    echo "[ERROR] npm install failed."
+    echo "[ERROR] Environment setup failed. Please check your internet connection."
     exit 1
 fi
 
 echo ""
 echo "[2/2] Running the application..."
-npm start
+"$NODE_EXEC" dist/runner.js
 `;
 fs.writeFileSync(path.join(releaseDir, 'run.sh'), runShContent);
 

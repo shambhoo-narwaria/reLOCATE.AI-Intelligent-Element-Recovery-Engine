@@ -42,6 +42,16 @@ This method packages the Node.js engine and your JavaScript code into a single e
 3.  **Cross-Platform Bloat**: Binaries are strictly platform-dependent (you must build separately for Windows, macOS, and Linux), and they do not embed browser executables easily.
 4.  **Browser Evaluation & Serialization Failures**: Binary compilers (like `pkg`) encapsulate your files inside a virtual snapshot directory (`/snapshot/`). If your Playwright scripts utilize `page.evaluate()` and attempt to fetch assets, load local client scripts, or run code that is scrambled by an outer-scope compiler obfuscator, the browser context will throw immediate `ReferenceError` or permission-denied crashes. This is because the browser runs inside its own system sandbox and has no access to files packed inside the `.exe`'s virtual snapshot filesystem.
 
+#### Developer Experience & Code Quality Issues (The "new Function" Hack):
+To get around the serialization and scope lookup issues in binary compilers, development teams are often forced to write browser evaluation scripts as strings and compile them at runtime using the `new Function()` API:
+```javascript
+const tag = await locator.evaluate(new Function('el', 'return el.type') as any);
+```
+While this bypasses compilation errors, it introduces severe **code quality degradation and code smells**:
+*   **Loss of Type Safety**: Writing JavaScript inside string templates disables TypeScript compilation and lint checks. Typographical errors inside the string templates will compile successfully and only crash at runtime in the browser.
+*   **No IDE Support**: You lose auto-complete, parameter suggestions, and syntax highlighting in VS Code and other modern editors, making writing complex DOM crawling or healing scripts slow and error-prone.
+*   **Insecure and Anti-Pattern Code**: It reverts the script logic to legacy dynamic execution patterns (equivalent to `eval()`), bypassing Playwright's native capacity for passing clean, type-safe closures directly.
+
 ---
 
 ### Method B: Portable Node.js (Highly Recommended)

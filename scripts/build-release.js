@@ -225,11 +225,17 @@ fi
 
 # Install production dependencies silently
 echo "[1/2] Preparing execution environment (this may take a minute on the first run)..."
-"$NPM_EXEC" install --omit=dev --no-audit --no-fund --loglevel=error > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-    echo "[ERROR] Environment setup failed. Please check your internet connection."
-    exit 1
+"$NPM_EXEC" install --omit=dev --no-audit --no-fund --loglevel=error > npm_install.log 2>&1
+INSTALL_STATUS=$?
+if [ $INSTALL_STATUS -ne 0 ]; then
+    echo "[ERROR] Environment setup failed."
+    echo "----------------- NPM ERROR LOG -----------------"
+    cat npm_install.log
+    echo "-------------------------------------------------"
+    rm -f npm_install.log
+    exit $INSTALL_STATUS
 fi
+rm -f npm_install.log
 
 echo ""
 echo "[2/2] Running the application..."

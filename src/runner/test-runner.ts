@@ -5,7 +5,7 @@ import { chromium, Locator, Page } from 'playwright';
 
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { RecoveryEngine } from '../recovery-engine/recovery.engine';
-import { IRecoveryPipeline } from '../interfaces/recovery-pipeline.interface';
+import { IRelocateElement } from '../interfaces/relocate-element.interface';
 import { StatusOverlay } from './status-overlay';
 import { StepOutcome, HtmlReportGeneratorService } from '../reporting/execution-reporter';
 import { validateOriginalLocatorSemantically } from '../validation/safety.validator';
@@ -21,7 +21,7 @@ export class TestRunner {
   constructor(
     private readonly recoveryEngine: RecoveryEngine,
     private readonly statusOverlay: StatusOverlay,
-    private readonly recoveryPipeline: IRecoveryPipeline
+    private readonly relocateElement: IRelocateElement
   ) {}
 
   /**
@@ -70,8 +70,8 @@ export class TestRunner {
    * Recreates fresh folders for outputs and returns the new report directory path.
    */
   private prepareLoggingDirectories(): string {
-    const visualDebugRoot = path.join(process.cwd(), 'logs', 'visual-debug');
-    const screenshotDir = path.join(process.cwd(), 'logs', 'screenshot');
+    const visualDebugRoot = path.join(process.cwd(), '.workspace', 'logs', 'visual-debug');
+    const screenshotDir = path.join(process.cwd(), '.workspace', 'logs', 'screenshot');
 
     // Clean old paths
     [visualDebugRoot, screenshotDir].forEach((dir) => {
@@ -85,7 +85,7 @@ export class TestRunner {
     const pad = (n: number) => String(n).padStart(2, '0');
     const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
     
-    const runReportDir = path.join(process.cwd(), 'reports', `Execution-Report-${ts}`);
+    const runReportDir = path.join(process.cwd(), '.workspace', 'reports', `Execution-Report-${ts}`);
     fs.mkdirSync(runReportDir, { recursive: true });
     console.log(`[TestRunner] Execution report directory created at: ${runReportDir}`);
     return runReportDir;
@@ -137,12 +137,12 @@ export class TestRunner {
   private async handleNavigationStep(page: Page, step: OriginalElement, index: number): Promise<void> {
     try {
       console.log(`[TestRunner] Navigating to: ${step.InputData}`);
-      await page.goto(step.InputData, { waitUntil: 'load', timeout: 60000 });
+      await page.goto(step.InputData!, { waitUntil: 'load', timeout: 60000 });
       console.log(`[TestRunner] Navigation complete. Waiting for page to settle...`);
       await waitForPageSettle(page, 30000, this.statusOverlay);
-      this.recordOutcome(index, step.Action, step.ObjectName || 'Navigation Step', 'Passed', false, step.InputData, step.InputData);
+      this.recordOutcome(index, step.Action, step.ObjectName || 'Navigation Step', 'Passed', false, step.InputData!, step.InputData!);
     } catch (navErr: any) {
-      this.recordOutcome(index, step.Action, step.ObjectName || 'Navigation Step', 'Failed', false, step.InputData, step.InputData, navErr.message || String(navErr));
+      this.recordOutcome(index, step.Action, step.ObjectName || 'Navigation Step', 'Failed', false, step.InputData!, step.InputData!, navErr.message || String(navErr));
       throw navErr;
     }
   }
@@ -214,7 +214,7 @@ export class TestRunner {
             console.error(`[TestRunner] Healing process failed on step ${index + 1} attempt ${attempt}: ${msg}`);
             // Capture failure screenshot if healing fails completely
             const stepNumStr = String(index + 1).padStart(2, '0');
-            const screenshotDir = path.join(process.cwd(), 'logs', 'screenshot');
+            const screenshotDir = path.join(process.cwd(), '.workspace', 'logs', 'screenshot');
             if (!fs.existsSync(screenshotDir)) {
               fs.mkdirSync(screenshotDir, { recursive: true });
             }
@@ -373,7 +373,7 @@ export class TestRunner {
   private async handleUnsupportedStep(page: Page, step: OriginalElement, index: number): Promise<void> {
     console.log(`[TestRunner] Action "${step.Action}" not recognized. Skipping step.`);
     const stepNumStr = String(index + 1).padStart(2, '0');
-    const screenshotDir = path.join(process.cwd(), 'logs', 'screenshot');
+    const screenshotDir = path.join(process.cwd(), '.workspace', 'logs', 'screenshot');
     
     if (!fs.existsSync(screenshotDir)) {
       fs.mkdirSync(screenshotDir, { recursive: true });
@@ -480,7 +480,7 @@ export class TestRunner {
    */
   private archiveStepArtifacts(stepIndex: number, runReportDir: string, outcome: StepOutcome): void {
     const padIndex = String(stepIndex).padStart(2, '0');
-    const screenshotDir = path.join(process.cwd(), 'logs', 'screenshot');
+    const screenshotDir = path.join(process.cwd(), '.workspace', 'logs', 'screenshot');
     const liveScreenshotPath = path.join(screenshotDir, `step-${padIndex}-live.png`);
 
     if (fs.existsSync(liveScreenshotPath)) {
@@ -495,7 +495,7 @@ export class TestRunner {
         fs.mkdirSync(stepFolder, { recursive: true });
       }
 
-      const debugDir = path.join(process.cwd(), 'logs', 'visual-debug', `step-${stepIndex}`);
+      const debugDir = path.join(process.cwd(), '.workspace', 'logs', 'visual-debug', `step-${stepIndex}`);
       const origCropSrc = path.join(debugDir, 'original_template.png');
       const origCropDest = path.join(stepFolder, `step-${padIndex}-original.png`);
       
@@ -540,7 +540,7 @@ export class TestRunner {
    */
   private async captureStepScreenshot(page: Page, locator: Locator, step: OriginalElement, stepIndex: number, reportDir: string): Promise<void> {
     const stepNumStr = String(stepIndex + 1).padStart(2, '0');
-    const screenshotDir = path.join(process.cwd(), 'logs', 'screenshot');
+    const screenshotDir = path.join(process.cwd(), '.workspace', 'logs', 'screenshot');
     if (!fs.existsSync(screenshotDir)) {
       fs.mkdirSync(screenshotDir, { recursive: true });
     }
@@ -587,10 +587,9 @@ export class TestRunner {
     } else {
       await this.statusOverlay.show(page, 'STABILIZE');
       logger.debug(`[TestRunner] Bypassing original locators for step ${stepIndex + 1} (index ${stepIndex}) "${step.ObjectName}" to force recovery...`);
-      step.forceAI = true;
     }
 
-    return await this.recoveryPipeline.recoverElement(page, step, stepIndex, originalLocator);
+    return await this.relocateElement.relocate(page, step, stepIndex, originalLocator);
   }
 
   /**

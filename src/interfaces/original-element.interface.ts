@@ -1,35 +1,72 @@
 export interface OriginalElement {
+  // =========================================================================
+  // 1. JSON Recorded Properties (Present in Recorded Testcase Files)
+  // =========================================================================
   Action: string;
-  ObjectName?: string;
-  LocXpath?: string;
   LocCssSelector?: string;
+  LocXpath?: string;
+  FullLocXpath?: string;
+  ShadowDomHostArray?: string[];
+  ShadowDomFullXpathArray?: string[] | null;
+  ShadowDomXpathArray?: string[];
+  ObjectName?: string;
+  MousePosition?: string;
+  EndMousePosition?: string;
+  InputData?: string;
+  LocTagName?: string;
+  OrigTagName?: string;
+  LocType?: string;
   LocId?: string;
   LocName?: string;
-  /** HTML tag name — treated as a stable identity signal */
-  LocTagName?: string;
-  /** CSS class of the recorded element (inside shadow DOM) */
+  LocTitle?: string;
+  LocValue?: string;
   LocClassName?: string;
+  FullHTML?: string;
+  URL?: string;
+  fullUrl?: string;
+  sourceUrl?: string;
+  ScreenName?: string;
+  IFrame?: string;
+  IFrameFullXpath?: string;
+  IFrameXpathArray?: string[];
+  IFrameFullXpathArray?: string[];
+  Screenshot?: string;
+  tabCount?: number;
+  TabNumber?: number;
+  OwnInnerText?: string;
+  DropParentXpath?: string;
+  TableXpath?: string;
+  TableRow?: string;
+  TableColumn?: string;
+  TableRowData?: any;
+  waitTime?: number;
+  ListItems?: any;
+  NextListItems?: any;
+  ElementViewportRect?: number[];
+  AccumulatedIframeOffset?: number[];
+  NearByText?: string[];
+
+  // =========================================================================
+  // 2. Internally Computed Properties (Calculated by the Engine at Runtime)
+  // =========================================================================
   /** ARIA / inferred role — stable secondary filter */
   role?: string;
   /** input[type] e.g. "text", "password", "checkbox" — stable for INPUT elements */
   inputType?: string;
   /** Interaction type: click | fill | check | select */
   interactionType?: string;
+  /** Computed accessibility name / screen-reader text */
   accessibleName?: string;
+  /** Associated label element text */
   labelText?: string;
-  NearByText?: string[];
+  /** Expected HTML tag name of direct parent node */
   parentTag?: string;
+  /** Expected ID attribute of parent node */
   parentId?: string;
+  /** Child position index inside parent element */
   indexInParent?: number;
+  /** DOM depth levels from root element */
   domDepth?: number;
-  /**
-   * Shadow DOM host chain — CSS selectors for each host from outermost → innermost.
-   * Recorded by the test recorder when the target element lives inside shadow roots.
-   * Example: ["zui-menubar-nav-item-v3:nth-child(1)"]
-   */
-  ShadowDomHostArray?: string[];
-  /** Full XPath for each shadow host in the chain (for debug / fallback) */
-  ShadowDomXpathArray?: string[];
+
   [key: string]: any;
 }
-

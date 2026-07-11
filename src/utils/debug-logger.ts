@@ -7,7 +7,7 @@ export class DebugLogger {
   private logPath: string;
 
   private constructor() {
-    const logsDir = path.join(process.cwd(), 'logs');
+    const logsDir = path.join(process.cwd(), '.workspace', 'logs');
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
     }

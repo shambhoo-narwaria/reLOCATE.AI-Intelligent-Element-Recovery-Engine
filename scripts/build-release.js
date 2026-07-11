@@ -19,7 +19,7 @@ function copyDirSync(src, dest) {
 
 // Resolve paths relative to root directory
 const rootDir = path.resolve(__dirname, '..');
-const releaseDir = path.join(rootDir, 'out');
+const releaseDir = path.join(rootDir, '.workspace', 'out');
 
 console.log('Cleaning old out folder...');
 if (fs.existsSync(releaseDir)) {
@@ -37,7 +37,7 @@ if (fs.existsSync(releaseDir)) {
 
 // Cache portable Node.js binaries
 const { execSync } = require('child_process');
-const binCacheDir = path.join(rootDir, 'bin_cache');
+const binCacheDir = path.join(rootDir, '.workspace', 'bin_cache');
 
 if (!fs.existsSync(binCacheDir)) {
   console.log('Downloading and extracting portable Node.js (Windows x64) to cache...');
@@ -73,7 +73,7 @@ copyDirSync(binCacheDir, path.join(releaseDir, 'bin'));
 
 // 1. Copy dist/
 console.log('Copying dist/ directory...');
-const distSrc = path.join(rootDir, 'dist');
+const distSrc = path.join(rootDir, '.workspace', 'dist');
 if (!fs.existsSync(distSrc)) {
   console.error('[Error] dist directory does not exist. Run "npm run build" first.');
   process.exit(1);
@@ -287,4 +287,4 @@ This directory contains the production release package of the reLOCATE.AI elemen
 `;
 fs.writeFileSync(path.join(releaseDir, 'README.md'), readmeContent);
 
-console.log('Release package successfully built in "./out" directory!');
+console.log('Release package successfully built in "./.workspace/out" directory!');

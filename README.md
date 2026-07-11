@@ -111,16 +111,39 @@ npm install
 ```
 
 ### Run Testcase
-Execute the test runner on the target application:
+Execute the standalone test runner on the target application:
 ```bash
 npm start
 ```
+
+### Integration in External Test Suites (Plug-and-Play Library)
+You can import the core element recovery pipeline directly into your own Playwright frameworks:
+
+```typescript
+import { RelocateEngine } from 'relocate-ai';
+
+// Initialize the engine
+const relocate = new RelocateEngine({ aiProvider: 'gemini' });
+
+// Relocate element dynamically (checks selector first, recovers if failed)
+const element = await relocate.relocateElement(page, '#mutated-login-btn', {
+  ObjectName: 'Login Button',
+  Action: 'Click',
+  LocTagName: 'BUTTON',
+  accessibleName: 'Login'
+});
+
+// Execute step actions on the returned Playwright locator
+await element.click();
+```
+
+For a comprehensive guide, parameters, and design details, check out the [RelocateEngine Integration Guide](file:///c:/Users/shaam/Desktop/reLOCATE.AI/docs/getting-started.md).
 
 ---
 
 ## Diagnostic Logs
 
-A detailed log is generated under `logs/healing-debug-YYYY-MM-DDTHH-MM-SS.log` for every session. It documents:
+A detailed log is generated under `.workspace/logs/healing-debug-YYYY-MM-DDTHH-MM-SS.log` for every session. It documents:
 *   Initial locator failures and loading delays.
 *   The system prompt and formatted candidates list payload sent to the AI.
 *   Raw AI output and final resolved locator (CSS selector with Healed ID fallback).

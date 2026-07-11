@@ -56,7 +56,7 @@ export async function saveOriginalTemplateImage(
     }, { originalB64, originalRect });
 
     if (origImgData) {
-      const debugDir = path.join(process.cwd(), 'logs', 'visual-debug', `step-${stepIndex + 1}`);
+      const debugDir = path.join(process.cwd(), '.workspace', 'logs', 'visual-debug', `step-${stepIndex + 1}`);
       if (!fs.existsSync(debugDir)) {
         fs.mkdirSync(debugDir, { recursive: true });
       }

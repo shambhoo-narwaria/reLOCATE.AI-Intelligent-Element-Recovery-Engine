@@ -2,12 +2,14 @@
   "name": "relocate-ai",
   "version": "1.0.0",
   "private": true,
+  "main": "./.workspace/dist/src/index.js",
+  "types": "./.workspace/dist/src/index.d.ts",
   "scripts": {
-    "build": "node -e \"const fs = require('fs'); fs.rmSync('dist', {recursive: true, force: true});\" && esbuild runner.ts --bundle --platform=node --target=node18 --external:playwright --external:openai --external:dotenv --outfile=dist/runner.js && javascript-obfuscator dist/runner.js --output dist/runner.js --compact true --self-defending false --string-array false > nul",
+    "build": "node -e \"const fs = require('fs'); fs.rmSync('.workspace/dist', {recursive: true, force: true});\" && esbuild runner.ts --bundle --platform=node --target=node18 --external:playwright --external:openai --external:dotenv --outfile=.workspace/dist/runner.js && javascript-obfuscator .workspace/dist/runner.js --output .workspace/dist/runner.js --compact true --self-defending false --string-array false > nul",
     "build:release": "npm run build && node scripts/build-release.js",
-    "start": "node dist/runner.js",
+    "start": "node .workspace/dist/runner.js",
     "start:dev": "ts-node runner.ts",
-    "healing": "node dist/runner.js --usehealing",
+    "healing": "node .workspace/dist/runner.js --usehealing",
     "healing:dev": "ts-node runner.ts --usehealing",
     "postinstall": "npx playwright install chromium"
   },

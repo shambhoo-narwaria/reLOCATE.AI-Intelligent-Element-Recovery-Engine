@@ -55,7 +55,7 @@ export class RecoveryEngine {
     const { scoredPool, bestMatch, runnerUp, prunedPool } = this.rankCandidates(original, pool, config);
 
     // Determine if AI is needed based on initial raw rule scores
-    const needsAI = !!original.forceAI || bestMatch.score < 90 || (runnerUp && (bestMatch.score - runnerUp.score) < 5);
+    const needsAI = bestMatch.score < 90 || (runnerUp && (bestMatch.score - runnerUp.score) < 5);
 
     // Step 4: Trigger AI reasoning layer (if enabled and scores require it)
     let resolved = await this.runAIReasoning(original, pool, prunedPool, bestMatch.score, config, needsAI, onPhaseChange);

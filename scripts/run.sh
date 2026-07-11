@@ -1,4 +1,7 @@
 #!/bin/bash
+# Move to the script's parent directory (project root)
+cd "$(dirname "$0")/.." || exit 1
+
 echo "=========================================================="
 echo "          reLOCATE.AI - Automated Installer and Runner"
 echo "=========================================================="

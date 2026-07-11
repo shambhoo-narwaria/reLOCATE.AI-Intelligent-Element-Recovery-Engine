@@ -10,10 +10,10 @@ import { ElementValidator } from '../validation/element.validator';
 import { StatusOverlay } from './status-overlay';
 import { logger } from '../utils/debug-logger';
 import { saveBase64Image, saveOriginalTemplateImage } from '../utils/visual-utils';
-import { IRecoveryPipeline } from '../interfaces/recovery-pipeline.interface';
+import { IRelocateElement } from '../interfaces/relocate-element.interface';
 import { waitForPageSettle } from '../utils/page-stabilizer';
 
-export class RecoveryPipeline implements IRecoveryPipeline {
+export class RelocateElement implements IRelocateElement {
   constructor(
     private recoveryEngine: RecoveryEngine,
     private candidateFinder: CandidateFinder,
@@ -22,7 +22,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
   ) {}
 
   // Executes the AI healing flow using DOM scraping, visual validation, and scoring engines
-  async recoverElement(
+  async relocate(
     page: Page,
     step: OriginalElement,
     stepIndex: number,
@@ -38,7 +38,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
     candidateId?: number;
     topCandidates?: any[];
   }> {
-    logger.warn(`[RecoveryPipeline] Original locator failed for "${step.ObjectName}". Initializing healing...`);
+    logger.warn(`[RelocateElement] Original locator failed for "${step.ObjectName}". Initializing healing...`);
 
     try {
       // --- Attempt 1: Full healing cycle ---
@@ -48,7 +48,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
         firstAttempt = await this.runHealingCycle(page, step, stepIndex);
       } catch (err: any) {
         firstAttemptErr = err;
-        console.warn(`[RecoveryPipeline] Healing cycle attempt 1 failed safety validation or encountered error: ${err.message || err}. Re-running full healing cycle from scratch...`);
+        console.warn(`[RelocateElement] Healing cycle attempt 1 failed safety validation or encountered error: ${err.message || err}. Re-running full healing cycle from scratch...`);
       }
 
       // If validation passed on first attempt, return immediately
@@ -70,7 +70,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
       }
 
       // --- Attempt 2: Validation failed or error occurred on Attempt 1 ---
-      console.warn(`[RecoveryPipeline] Attempt 1 did not complete successfully. Re-running full healing cycle...`);
+      console.warn(`[RelocateElement] Attempt 1 did not complete successfully. Re-running full healing cycle...`);
       try {
         await waitForPageSettle(page, 10000, this.statusOverlay);
       } catch { /* page may be closed */ }
@@ -81,7 +81,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
       } catch (retryErr: any) {
         // Second healing cycle itself failed — fall back to first attempt's element if we have one
         if (firstAttempt) {
-          console.warn(`[RecoveryPipeline] Re-healing cycle failed: ${retryErr.message || retryErr}. Proceeding with first attempt's element anyway.`);
+          console.warn(`[RelocateElement] Re-healing cycle failed: ${retryErr.message || retryErr}. Proceeding with first attempt's element anyway.`);
           await this.statusOverlay.show(page, 'COMPLETE').catch(() => {});
           return {
             locator: firstAttempt.locator,
@@ -95,13 +95,13 @@ export class RecoveryPipeline implements IRecoveryPipeline {
             topCandidates: firstAttempt.topCandidates
           };
         } else {
-          console.error(`[RecoveryPipeline] Both healing attempts failed safety validation or hard errors. First: ${firstAttemptErr?.message || firstAttemptErr}, Second: ${retryErr.message || retryErr}`);
+          console.error(`[RelocateElement] Both healing attempts failed safety validation or hard errors. First: ${firstAttemptErr?.message || firstAttemptErr}, Second: ${retryErr.message || retryErr}`);
           throw firstAttemptErr || retryErr;
         }
       }
 
       if (!secondAttempt.validationPassed) {
-        console.warn(`[RecoveryPipeline] Validation failed on second healing attempt for "${step.ObjectName}". Proceeding with action anyway.`);
+        console.warn(`[RelocateElement] Validation failed on second healing attempt for "${step.ObjectName}". Proceeding with action anyway.`);
       }
 
       await this.statusOverlay.show(page, 'COMPLETE').catch(() => {});
@@ -162,7 +162,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
 
       return true;
     });
-    console.log(`[RecoveryPipeline] Candidates after internal-element filter: ${candidates.length}`);
+    console.log(`[RelocateElement] Candidates after internal-element filter: ${candidates.length}`);
 
     const ROOT_IDS = new Set(['app', 'root', 'main', 'body', '__next', 'application']);
     const isLoadingStateDom = (cands: typeof candidates): boolean => {
@@ -184,7 +184,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
     let retries = 15;
     while ((candidates.length === 0 || isLoadingStateDom(candidates)) && retries > 0) {
       const reason = candidates.length === 0 ? '0 candidates (waiting for skeleton/loading to settle)' : 'page still in loading-state (CSS-in-JS hashes only)';
-      console.log(`[RecoveryPipeline] ${reason}. Retrying in 2000ms... (${retries} retries left)`);
+      console.log(`[RelocateElement] ${reason}. Retrying in 2000ms... (${retries} retries left)`);
       
       // Update status overlay progress (from attempt 1 to 15)
       await this.statusOverlay.show(page, 'SCRAPE', { current: 16 - retries, total: 15 });
@@ -206,10 +206,10 @@ export class RecoveryPipeline implements IRecoveryPipeline {
       const origTagUpper = step.OrigTagName.toUpperCase();
       const sameTagCandidates = candidates.filter(c => c.functional.tagName.toUpperCase() === origTagUpper);
       if (sameTagCandidates.length > 0) {
-        logger.debug(`[RecoveryPipeline] Tag filter: restricting ${candidates.length} → ${sameTagCandidates.length} candidates with tagName="${origTagUpper}"`);
+        logger.debug(`[RelocateElement] Tag filter: restricting ${candidates.length} → ${sameTagCandidates.length} candidates with tagName="${origTagUpper}"`);
         candidates = sameTagCandidates;
       } else {
-        logger.debug(`[RecoveryPipeline] Tag filter: no candidates with tagName="${origTagUpper}" found — keeping full pool of ${candidates.length}`);
+        logger.debug(`[RelocateElement] Tag filter: no candidates with tagName="${origTagUpper}" found — keeping full pool of ${candidates.length}`);
       }
     }
 
@@ -318,7 +318,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
 
     scored.sort((a, b) => b.score - a.score || a.c.candidateId - b.c.candidateId);
     const pruned = scored.slice(0, maxLimit).map(s => s.c);
-    logger.debug(`[RecoveryPipeline] Relevance cap applied: kept top ${pruned.length} of ${scored.length} candidates (keywords: [${allKeywords.slice(0, 8).join(', ')}])`);
+    logger.debug(`[RelocateElement] Relevance cap applied: kept top ${pruned.length} of ${scored.length} candidates (keywords: [${allKeywords.slice(0, 8).join(', ')}])`);
     return pruned;
   }
 
@@ -330,23 +330,23 @@ export class RecoveryPipeline implements IRecoveryPipeline {
     candidates: Candidate[]
   ): Promise<void> {
     if (!step.Screenshot || !step.ElementViewportRect || !Array.isArray(step.ElementViewportRect) || step.ElementViewportRect.length !== 4) {
-      console.log(`[RecoveryPipeline] Step has no recorded Screenshot/ElementViewportRect data. Defaulting to neutral visual similarity.`);
+      console.log(`[RelocateElement] Step has no recorded Screenshot/ElementViewportRect data. Defaulting to neutral visual similarity.`);
       candidates.forEach(c => {
         c.visual.similarity = 0;
       });
       return;
     }
 
-    console.log(`[RecoveryPipeline] Initializing visual verification matching...`);
+    console.log(`[RelocateElement] Initializing visual verification matching...`);
     try {
       const tagFilteredCandidates = this.getFilteredCandidates(step, candidates);
-      console.log(`[RecoveryPipeline] Restricting visual comparison to ${tagFilteredCandidates.length} tag-matched candidates (out of ${candidates.length} total).`);
+      console.log(`[RelocateElement] Restricting visual comparison to ${tagFilteredCandidates.length} tag-matched candidates (out of ${candidates.length} total).`);
 
       const structuralRules = this.recoveryEngine.scoringEngine.rules.filter(r => r.name !== 'VisualSimilarityRule');
       const tempEngine = new ScoringEngine(structuralRules);
       const preScored = tempEngine.scoreCandidates(step, tagFilteredCandidates);
       const topCandidates = preScored.slice(0, 20).map(item => item.candidate);
-      logger.debug(`[RecoveryPipeline] Pre-scored tag-matched candidates. Verifying top ${topCandidates.length} sequentially with scroll-into-view.`);
+      logger.debug(`[RelocateElement] Pre-scored tag-matched candidates. Verifying top ${topCandidates.length} sequentially with scroll-into-view.`);
 
       const similarities: any[] = [];
       const originalScreenshotB64 = step.Screenshot;
@@ -354,10 +354,34 @@ export class RecoveryPipeline implements IRecoveryPipeline {
 
       await saveOriginalTemplateImage(page, originalScreenshotB64, originalRect, stepIndex);
 
+      // Pre-capture initial page viewport screenshot and scroll info to avoid redundant screenshotting
+      let cachedScreenshotB64 = await page.screenshot({ type: 'jpeg', quality: 80 }).then(buf => buf.toString('base64'));
+      let cachedScroll = await page.evaluate(() => ({
+        x: window.scrollX,
+        y: window.scrollY,
+        w: window.innerWidth,
+        h: window.innerHeight
+      })).catch(() => ({ x: 0, y: 0, w: 1920, h: 1080 }));
+
       for (const c of topCandidates) {
         const index = topCandidates.indexOf(c) + 1;
-        const result = await this.compareCandidateVisually(page, c, originalScreenshotB64, originalRect, index, topCandidates.length);
+        const result = await this.compareCandidateVisually(
+          page,
+          c,
+          originalScreenshotB64,
+          originalRect,
+          index,
+          topCandidates.length,
+          cachedScreenshotB64,
+          cachedScroll
+        );
         similarities.push(result);
+
+        // If the child comparison scrolled and updated the viewport, update our cache
+        if (result.updatedScreenshotB64) {
+          cachedScreenshotB64 = result.updatedScreenshotB64;
+          cachedScroll = result.updatedScroll!;
+        }
       }
 
       const similarityMap = new Map<number, number>(similarities.map(s => [s.candidateId, s.similarity]));
@@ -365,7 +389,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
         c.visual.similarity = similarityMap.get(c.candidateId) ?? 0;
       });
 
-      const debugDir = path.join(process.cwd(), 'logs', 'visual-debug', `step-${stepIndex + 1}`);
+      const debugDir = path.join(process.cwd(), '.workspace', 'logs', 'visual-debug', `step-${stepIndex + 1}`);
       if (!fs.existsSync(debugDir)) {
         fs.mkdirSync(debugDir, { recursive: true });
       }
@@ -382,9 +406,9 @@ export class RecoveryPipeline implements IRecoveryPipeline {
         }
       });
 
-      console.log(`[RecoveryPipeline] Visual verification scores mapped to candidate pool and logged under logs/visual-debug/step-${stepIndex + 1}/`);
+      console.log(`[RelocateElement] Visual verification scores mapped to candidate pool and logged under .workspace/logs/visual-debug/step-${stepIndex + 1}/`);
     } catch (err) {
-      console.warn(`[RecoveryPipeline] Visual comparison failed, defaulting to neutral visual similarity scores.`, err);
+      console.warn(`[RelocateElement] Visual comparison failed, defaulting to neutral visual similarity scores.`, err);
       candidates.forEach(c => {
         c.visual.similarity = 0;
       });
@@ -398,8 +422,10 @@ export class RecoveryPipeline implements IRecoveryPipeline {
     originalScreenshotB64: string,
     originalRect: number[],
     index: number,
-    total: number
-  ): Promise<{ candidateId: number; similarity: number; origImgData?: string; candImgData?: string }> {
+    total: number,
+    cachedScreenshotB64?: string,
+    cachedScroll?: { x: number; y: number; w: number; h: number }
+  ): Promise<{ candidateId: number; similarity: number; origImgData?: string; candImgData?: string; updatedScreenshotB64?: string; updatedScroll?: any }> {
     await this.statusOverlay.show(page, 'VISUAL', { current: index, total });
     try {
       let locator = page.locator(`[data-ai-healed-id="${c.candidateId}"]`).first();
@@ -414,19 +440,15 @@ export class RecoveryPipeline implements IRecoveryPipeline {
             }, String(c.candidateId));
             locator = fallbackLoc;
             isVisible = true;
-            logger.debug(`[RecoveryPipeline] Recovered visibility for candidate ${c.candidateId} (${c.functional.tagName}) by re-stamping CSS selector.`);
+            logger.debug(`[RelocateElement] Recovered visibility for candidate ${c.candidateId} (${c.functional.tagName}) by re-stamping CSS selector.`);
           } catch (err: any) { }
         }
       }
 
       const forceZeroScore = !isVisible;
 
-      try {
-        await locator.scrollIntoViewIfNeeded({ timeout: 1000 });
-        await page.waitForTimeout(100);
-      } catch (err: any) { }
-
-      const currentRect = await locator.evaluate((el) => {
+      // 1. Evaluate element dimensions in browser context FIRST (so we can determine if it's already in viewport)
+      let currentRect = await locator.evaluate((el) => {
         const getElementRectWithFallback = (element: Element): DOMRect => {
           const rect = element.getBoundingClientRect();
           if (rect.width > 0 && rect.height > 0) return rect;
@@ -464,9 +486,44 @@ export class RecoveryPipeline implements IRecoveryPipeline {
         };
       }).catch(() => null);
 
-      await this.statusOverlay.show(page, 'VISUAL', { current: index, total, candidateRect: currentRect });
+      let currentScreenshotB64 = cachedScreenshotB64 || '';
+      let scrollInfo = cachedScroll || { x: 0, y: 0, w: 1920, h: 1080 };
+      let updatedScreenshotB64: string | undefined;
+      let updatedScroll: any;
 
-      const currentScreenshotB64 = await page.screenshot({ type: 'jpeg', quality: 80 }).then(buf => buf.toString('base64'));
+      // 2. Check if candidate rect is fully inside the currently cached viewport
+      const isInsideViewport = currentRect &&
+        currentRect.left >= 0 &&
+        currentRect.top >= 0 &&
+        (currentRect.left + currentRect.width) <= scrollInfo.w &&
+        (currentRect.top + currentRect.height) <= scrollInfo.h;
+
+      if (!isInsideViewport && isVisible) {
+        // Scroll and re-capture only when outside current viewport
+        try {
+          await locator.scrollIntoViewIfNeeded({ timeout: 1000 });
+          await page.waitForTimeout(100);
+        } catch (err: any) { }
+
+        // Recalculate dimensions relative to new viewport
+        currentRect = await locator.evaluate((el) => {
+          const rect = el.getBoundingClientRect();
+          return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+        }).catch(() => null);
+
+        // Capture new viewport image & update cache
+        currentScreenshotB64 = await page.screenshot({ type: 'jpeg', quality: 80 }).then(buf => buf.toString('base64'));
+        scrollInfo = await page.evaluate(() => ({
+          x: window.scrollX,
+          y: window.scrollY,
+          w: window.innerWidth,
+          h: window.innerHeight
+        })).catch(() => ({ x: 0, y: 0, w: 1920, h: 1080 }));
+        updatedScreenshotB64 = currentScreenshotB64;
+        updatedScroll = scrollInfo;
+      }
+
+      await this.statusOverlay.show(page, 'VISUAL', { current: index, total, candidateRect: currentRect });
 
       const result = await page.evaluate(async ({ originalB64, currentB64, originalRect, candRect, devicePixelRatio }) => {
         const loadImage = (src: string): Promise<HTMLImageElement> => {
@@ -592,16 +649,49 @@ export class RecoveryPipeline implements IRecoveryPipeline {
           const edgesCand = getEdges(grayCand, targetW, targetH);
           const blurredCand = blurEdges(edgesCand, targetW, targetH);
 
-          let sumMin = 0;
-          let sumMax = 0;
-          for (let i = 0; i < blurredOrig.length; i++) {
-            const o = blurredOrig[i];
-            const c = blurredCand[i];
-            sumMin += Math.min(o, c);
-            sumMax += Math.max(o, c);
+          let maxSimilarity = 0;
+          const maxShift = 4; // allows up to 4 pixels translation in any direction
+
+          // Pre-sort shifts by Euclidean distance from center (0, 0)
+          const shifts: { ox: number; oy: number }[] = [];
+          for (let oy = -maxShift; oy <= maxShift; oy++) {
+            for (let ox = -maxShift; ox <= maxShift; ox++) {
+              shifts.push({ ox, oy });
+            }
+          }
+          shifts.sort((a, b) => (a.ox * a.ox + a.oy * a.oy) - (b.ox * b.ox + b.oy * b.oy));
+
+          outerLoop:
+          for (const { ox, oy } of shifts) {
+            const startY = Math.max(0, -oy);
+            const endY = Math.min(targetH, targetH - oy);
+            const startX = Math.max(0, -ox);
+            const endX = Math.min(targetW, targetW - ox);
+
+            let sumMin = 0;
+            let sumMax = 0;
+
+            for (let y = startY; y < endY; y++) {
+              const rowOrigOffset = y * targetW;
+              const rowCandOffset = (y + oy) * targetW;
+              for (let x = startX; x < endX; x++) {
+                const o = blurredOrig[rowOrigOffset + x];
+                const c = blurredCand[rowCandOffset + (x + ox)];
+                sumMin += Math.min(o, c);
+                sumMax += Math.max(o, c);
+              }
+            }
+
+            const similarity = sumMax > 0.001 ? (sumMin / sumMax) : 1.0;
+            if (similarity > maxSimilarity) {
+              maxSimilarity = similarity;
+            }
+            if (maxSimilarity >= 0.70) {
+              break outerLoop;
+            }
           }
 
-          let similarity = sumMax > 0.001 ? (sumMin / sumMax) : 1.0;
+          let similarity = maxSimilarity;
 
           const origArea = origW * origH;
           const candArea = candRect.width * candRect.height;
@@ -641,12 +731,14 @@ export class RecoveryPipeline implements IRecoveryPipeline {
           candidateId: c.candidateId,
           similarity: forceZeroScore ? 0 : result.similarity,
           origImgData: result.origImgData,
-          candImgData: result.candImgData
+          candImgData: result.candImgData,
+          updatedScreenshotB64,
+          updatedScroll
         };
       }
       return { candidateId: c.candidateId, similarity: 0 };
     } catch (err) {
-      console.warn(`[RecoveryPipeline] Visual comparison failed for candidate ${c.candidateId}, defaulting to 0 similarity.`, err);
+      console.warn(`[RelocateElement] Visual comparison failed for candidate ${c.candidateId}, defaulting to 0 similarity.`, err);
       return { candidateId: c.candidateId, similarity: 0 };
     }
   }
@@ -660,10 +752,10 @@ export class RecoveryPipeline implements IRecoveryPipeline {
     stepIndex: number
   ): Promise<{ locator: Locator; healResult: any; topCandidates: any[]; validationPassed: boolean }> {
     await this.statusOverlay.show(page, 'STABILIZE');
-    logger.debug(`[RecoveryPipeline] Ensuring page is fully loaded before creating AI payload...`);
+    logger.debug(`[RelocateElement] Ensuring page is fully loaded before creating AI payload...`);
     
     // Wait for 3 seconds before starting the healing cycle / candidate scraping
-    console.log(`[RecoveryPipeline] Waiting 3 seconds to let layout settle before starting candidate scraping...`);
+    console.log(`[RelocateElement] Waiting 3 seconds to let layout settle before starting candidate scraping...`);
     try {
       await page.waitForTimeout(3000);
     } catch { /* page closed */ }
@@ -708,7 +800,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
       healedEl = cssLocator;
     } else {
       if (healResult.candidateId !== undefined) {
-        console.warn(`[RecoveryPipeline] Healed CSS locator "${healResult.healedLocator}" not visible or detached. Falling back to custom attribute [data-ai-healed-id="${healResult.candidateId}"]`);
+        console.warn(`[RelocateElement] Healed CSS locator "${healResult.healedLocator}" not visible or detached. Falling back to custom attribute [data-ai-healed-id="${healResult.candidateId}"]`);
         healedEl = page.locator(`[data-ai-healed-id="${healResult.candidateId}"]`).first();
       } else {
         healedEl = cssLocator;
@@ -717,7 +809,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
     try {
       await healedEl.scrollIntoViewIfNeeded({ timeout: 3000 });
     } catch (err: any) {
-      console.warn(`[RecoveryPipeline] Failed to scroll element "${healResult.healedLocator}" into view:`, err.message || err);
+      console.warn(`[RelocateElement] Failed to scroll element "${healResult.healedLocator}" into view:`, err.message || err);
     }
 
     // Actionability validation with one retry after 5s wait
@@ -727,7 +819,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
       validationPassed = await this.elementValidator.validate(healedEl, step.Action === 'Enter');
 
       if (!validationPassed) {
-        console.warn(`[RecoveryPipeline] Healed element "${healResult.healedLocator}" failed initial validation. Waiting 5s and retrying...`);
+        console.warn(`[RelocateElement] Healed element "${healResult.healedLocator}" failed initial validation. Waiting 5s and retrying...`);
         try {
           await page.waitForTimeout(5000);
         } catch { /* page may be closed, ignore */ }
@@ -735,10 +827,10 @@ export class RecoveryPipeline implements IRecoveryPipeline {
       }
 
       if (!validationPassed) {
-        console.warn(`[RecoveryPipeline] Healed element "${healResult.healedLocator}" failed actionability validation after retry.`);
+        console.warn(`[RelocateElement] Healed element "${healResult.healedLocator}" failed actionability validation after retry.`);
       }
     } catch (validationErr: any) {
-      console.warn(`[RecoveryPipeline] Validation encountered an error: ${validationErr.message || validationErr}.`);
+      console.warn(`[RelocateElement] Validation encountered an error: ${validationErr.message || validationErr}.`);
       validationPassed = false;
     }
 
@@ -758,7 +850,7 @@ export class RecoveryPipeline implements IRecoveryPipeline {
         ruleScores: item.ruleScores
       }));
     } catch (scoreErr) {
-      console.warn(`[RecoveryPipeline] Failed to retrieve candidate scores for report:`, scoreErr);
+      console.warn(`[RelocateElement] Failed to retrieve candidate scores for report:`, scoreErr);
       return [];
     }
   }
@@ -778,13 +870,13 @@ export class RecoveryPipeline implements IRecoveryPipeline {
         const isNavErr = msg.includes('context was destroyed') || msg.includes('navigation') || msg.includes('navigated') || msg.includes('closed') || msg.includes('detached') || msg.includes('stale') || msg.includes('Target page, context or browser has been closed');
 
         if (retries > 0 && isNavErr) {
-          console.warn(`[RecoveryPipeline] findCandidates failed due to navigation/context destruction: ${msg}. Waiting 8s for page layout to settle and retrying (${retries} retries left)...`);
+          console.warn(`[RelocateElement] findCandidates failed due to navigation/context destruction: ${msg}. Waiting 8s for page layout to settle and retrying (${retries} retries left)...`);
           await this.statusOverlay.show(page, 'STABILIZE');
           await waitForPageSettle(page, 8000, this.statusOverlay);
           await this.statusOverlay.show(page, 'SCRAPE');
           continue;
         }
-        console.error(`[RecoveryPipeline] findCandidates encountered a fatal or unrecoverable error:`, err);
+        console.error(`[RelocateElement] findCandidates encountered a fatal or unrecoverable error:`, err);
         throw err;
       }
     }

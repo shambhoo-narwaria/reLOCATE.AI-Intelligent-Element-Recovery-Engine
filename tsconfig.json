@@ -7,8 +7,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
-    "outDir": "./dist",
-    "rootDir": "."
+    "outDir": "./.workspace/dist",
+    "rootDir": ".",
+    "declaration": true
   },
-  "exclude": ["dist", "node_modules"]
+  "exclude": [".workspace", "node_modules"]
 }

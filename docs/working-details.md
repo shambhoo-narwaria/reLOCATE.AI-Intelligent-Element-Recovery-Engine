@@ -115,7 +115,7 @@ The orchestrator receives the scraped candidate pool, applies pre-filters (tag-n
 
 If a candidate passes validation, the orchestrator checks:
 ```typescript
-const needsAI = !!original.forceAI || bestMatch.score < 90 || (runnerUp && (bestMatch.score - runnerUp.score) < 5);
+const needsAI = bestMatch.score < 90 || (runnerUp && (bestMatch.score - runnerUp.score) < 5);
 ```
 * If the best-scored candidate has a score $\ge 90$ and a safety margin $\ge 5$ points over the runner-up, it heals **rules-based** instantly (saving LLM latency/costs).
 * Otherwise, it delegates the candidate pool to the active **AI Reasoning Layer** for deep semantic analysis.

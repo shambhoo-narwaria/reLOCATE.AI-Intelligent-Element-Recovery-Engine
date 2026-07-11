@@ -6,16 +6,12 @@ node_modules/
 .env.local
 .env.*.local
 
+# Local Workspace Directory (contains dist, out, bin_cache, logs, reports)
+.workspace/
+
 # Diagnostic logs
-logs/
 *.log
 npm-debug.log*
-
-# TypeScript build outputs
-dist/
-out/
-bin_cache/
-
 
 # System files
 .DS_Store
@@ -23,4 +19,3 @@ Thumbs.db
 
 # Testcases containing patient translation lists or local data
 Testcase
-reports

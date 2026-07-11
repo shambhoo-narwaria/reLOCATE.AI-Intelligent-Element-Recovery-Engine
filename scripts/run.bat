@@ -1,4 +1,7 @@
 @echo off
+:: Navigate to project root relative to script location
+cd /d "%~dp0.."
+
 echo ==========================================================
 echo           reLOCATE.AI - Automated Installer and Runner
 echo ==========================================================

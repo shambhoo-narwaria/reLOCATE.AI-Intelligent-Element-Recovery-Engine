@@ -1,8 +1,8 @@
 import { Locator, Page } from 'playwright';
 import { OriginalElement } from './original-element.interface';
 
-export interface IRecoveryPipeline {
-  recoverElement(
+export interface IRelocateElement {
+  relocate(
     page: Page,
     step: OriginalElement,
     stepIndex: number,

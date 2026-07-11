@@ -30,7 +30,7 @@ import { HorizontalProximityRule } from './src/scoring/rules/horizontal-proximit
 import { CandidateFinder } from './src/runner/candidate-finder';
 import { ElementValidator } from './src/validation/element.validator';
 import { StatusOverlay } from './src/runner/status-overlay';
-import { RecoveryPipeline } from './src/runner/recovery-pipeline';
+import { RelocateElement } from './src/runner/relocate-element';
 import { TestRunner } from './src/runner/test-runner';
 
 async function bootstrap() {
@@ -82,7 +82,7 @@ async function bootstrap() {
   const candidateFinder = new CandidateFinder();
   const elementValidator = new ElementValidator();
   const statusOverlay = new StatusOverlay();
-  const recoveryPipeline = new RecoveryPipeline(
+  const relocateElement = new RelocateElement(
     recoveryEngine,
     candidateFinder,
     elementValidator,
@@ -92,7 +92,7 @@ async function bootstrap() {
   const testRunner = new TestRunner(
     recoveryEngine,
     statusOverlay,
-    recoveryPipeline
+    relocateElement
   );
 
   // 5. Detect usehealing mode and execute test runner

@@ -8,10 +8,10 @@ import { OriginalElement } from './interfaces/original-element.interface';
 import { RecoveryEngine } from './recovery-engine/recovery.engine';
 import { ScoringEngine } from './scoring/scoring.engine';
 import { SafetyValidator, SemanticValidationGate, VisualValidationGate } from './validation/safety.validator';
-import { CandidateFinder } from './runner/candidate-finder';
+import { CandidateFinder } from './recovery-engine/candidate-finder';
 import { ElementValidator } from './validation/element.validator';
-import { StatusOverlay } from './runner/status-overlay';
-import { RelocateElement } from './runner/relocate-element';
+import { StatusOverlay } from './utils/status-overlay';
+import { RelocateElement } from './recovery-engine/relocate-element';
 
 // LLM Connectors
 import { OpenAIService } from './llm-connectors/openai.service';
@@ -105,13 +105,14 @@ export class RelocateEngine {
   ): Promise<Locator> {
     // Recovery triggers
     const stepMetadata: OriginalElement = {
-      ObjectName: recordedIdentity.ObjectName || 'relocated-element',
-      LocCssSelector: recordedSelector,
-      interactionType: recordedIdentity.Action.toLowerCase() as any,
-      OrigTagName: recordedIdentity.LocTagName || recordedIdentity.OrigTagName,
+      ...recordedIdentity,
+      ObjectName: recordedIdentity.ObjectName,
+      LocCssSelector: recordedIdentity.LocCssSelector,
+      interactionType: (recordedIdentity.interactionType || (recordedIdentity.Action?.toLowerCase() === 'enter' ? 'fill' : recordedIdentity.Action?.toLowerCase())) as any,
+      OrigTagName: recordedIdentity.OrigTagName || recordedIdentity.LocTagName,
       LocTagName: recordedIdentity.LocTagName || recordedIdentity.OrigTagName,
-      LocText: recordedIdentity.labelText || recordedIdentity.LocText || recordedIdentity.accessibleName || recordedIdentity.OwnInnerText,
-      ...recordedIdentity
+      LocText: recordedIdentity.LocText || recordedIdentity.labelText || recordedIdentity.accessibleName || recordedIdentity.OwnInnerText,
+      Action: recordedIdentity.Action
     } as OriginalElement;
 
     console.warn(`[RelocateEngine] Target element "${recordedSelector}" failed or recovery requested. Triggering AI Recovery...`);

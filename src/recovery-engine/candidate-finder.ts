@@ -439,8 +439,6 @@ export class CandidateFinder {
 
       const collected = collectAll(document, [], 0);
 
-
-
       // ── Build candidates ──────────────────────────────────────────────────
       return collected.map(({ el, hostChain, absoluteDepth }: CollectedEl, index: number) => {
         const uniqueId = startCounter + index;

@@ -3,11 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
-import { RecoveryEngine } from '../recovery-engine/recovery.engine';
+import { RecoveryEngine } from './recovery.engine';
 import { ScoringEngine } from '../scoring/scoring.engine';
 import { CandidateFinder } from './candidate-finder';
 import { ElementValidator } from '../validation/element.validator';
-import { StatusOverlay } from './status-overlay';
+import { StatusOverlay } from '../utils/status-overlay';
 import { logger } from '../utils/debug-logger';
 import { saveBase64Image, saveOriginalTemplateImage } from '../utils/visual-utils';
 import { IRelocateElement } from '../interfaces/relocate-element.interface';
@@ -19,9 +19,16 @@ export class RelocateElement implements IRelocateElement {
     private candidateFinder: CandidateFinder,
     private elementValidator: ElementValidator,
     private statusOverlay: StatusOverlay
-  ) {}
+  ) { }
 
-  // Executes the AI healing flow using DOM scraping, visual validation, and scoring engines
+
+
+  /**
+   * Relocates a target UI element by invoking the AI healing pipeline.
+   * Runs candidate collection, visual edge matching, heuristic rule scoring,
+   * safety validation checks, and post-healing actionability verification.
+   * Up to two full recovery attempts are executed before falling back or throwing.
+   */
   async relocate(
     page: Page,
     step: OriginalElement,
@@ -41,14 +48,14 @@ export class RelocateElement implements IRelocateElement {
     logger.warn(`[RelocateElement] Original locator failed for "${step.ObjectName}". Initializing healing...`);
 
     try {
-      // --- Attempt 1: Full healing cycle ---
+      // Attempt 1: Full healing cycle
       let firstAttempt;
       let firstAttemptErr: any = null;
       try {
         firstAttempt = await this.runHealingCycle(page, step, stepIndex);
       } catch (err: any) {
         firstAttemptErr = err;
-        console.warn(`[RelocateElement] Healing cycle attempt 1 failed safety validation or encountered error: ${err.message || err}. Re-running full healing cycle from scratch...`);
+        console.warn(`[RelocateElement] Healing attempt 1 failed. Re-running...`);
       }
 
       // If validation passed on first attempt, return immediately
@@ -69,8 +76,8 @@ export class RelocateElement implements IRelocateElement {
         };
       }
 
-      // --- Attempt 2: Validation failed or error occurred on Attempt 1 ---
-      console.warn(`[RelocateElement] Attempt 1 did not complete successfully. Re-running full healing cycle...`);
+      // Attempt 2: Validation failed or error occurred on Attempt 1
+      console.warn(`[RelocateElement] Re-running healing cycle...`);
       try {
         await waitForPageSettle(page, 10000, this.statusOverlay);
       } catch { /* page may be closed */ }
@@ -79,32 +86,15 @@ export class RelocateElement implements IRelocateElement {
       try {
         secondAttempt = await this.runHealingCycle(page, step, stepIndex);
       } catch (retryErr: any) {
-        // Second healing cycle itself failed — fall back to first attempt's element if we have one
-        if (firstAttempt) {
-          console.warn(`[RelocateElement] Re-healing cycle failed: ${retryErr.message || retryErr}. Proceeding with first attempt's element anyway.`);
-          await this.statusOverlay.show(page, 'COMPLETE').catch(() => {});
-          return {
-            locator: firstAttempt.locator,
-            oldLocator: originalLocator,
-            newLocator: firstAttempt.healResult.healedLocator,
-            didHeal: true,
-            triggeredAI: firstAttempt.healResult.triggeredAI,
-            confidence: firstAttempt.healResult.confidence,
-            reason: firstAttempt.healResult.reason + ' (validation failed, re-healing also failed)',
-            candidateId: firstAttempt.healResult.candidateId,
-            topCandidates: firstAttempt.topCandidates
-          };
-        } else {
-          console.error(`[RelocateElement] Both healing attempts failed safety validation or hard errors. First: ${firstAttemptErr?.message || firstAttemptErr}, Second: ${retryErr.message || retryErr}`);
-          throw firstAttemptErr || retryErr;
-        }
+        console.error(`[RelocateElement] Both healing attempts failed or encountered errors. First: ${firstAttemptErr?.message || firstAttemptErr}, Second: ${retryErr.message || retryErr}`);
+        throw firstAttemptErr || retryErr;
       }
 
       if (!secondAttempt.validationPassed) {
         console.warn(`[RelocateElement] Validation failed on second healing attempt for "${step.ObjectName}". Proceeding with action anyway.`);
       }
 
-      await this.statusOverlay.show(page, 'COMPLETE').catch(() => {});
+      await this.statusOverlay.show(page, 'COMPLETE').catch(() => { });
       await page.waitForTimeout(1000).catch(() => { });
 
       return {
@@ -130,7 +120,60 @@ export class RelocateElement implements IRelocateElement {
     }
   }
 
-  // Scrapes DOM candidates with loading-state retries and tag filters
+  /**
+   * Runs a single complete element healing workflow iteration:
+   * 1. Stabilize layout
+   * 2. Scrape elements from live DOM
+   * 3. Prune candidate elements to fit evaluation budget
+   * 4. Perform edge-matching visual comparisons
+   * 5. Match candidate scores in heuristic engine
+   * 6. Perform actionability checks on final locator
+   */
+  private async runHealingCycle(
+    page: Page,
+    step: OriginalElement,
+    stepIndex: number
+  ): Promise<{ locator: Locator; healResult: any; topCandidates: any[]; validationPassed: boolean }> {
+    await this.statusOverlay.show(page, 'STABILIZE');
+    // Wait for 3 seconds before starting the healing cycle / candidate scraping
+    console.log(`[RelocateElement] Waiting 3s for layout to settle...`);
+    try {
+      await page.waitForTimeout(3000);
+    } catch { /* page closed */ }
+
+    await waitForPageSettle(page, 30000, this.statusOverlay);
+
+    // Scrape DOM and filter loading states/skeletons/internal elements
+    let candidates = await this.scrapeAndFilterCandidates(page, step);
+
+    // Prune candidate pool based on text and structure relevance to fit budget limit
+    await this.statusOverlay.show(page, 'PRUNE');
+    candidates = this.pruneCandidatesByRelevance(step, candidates);
+
+    // Execute sequential visual template match scoring if template screenshots are available
+    await this.performVisualVerification(page, step, stepIndex, candidates);
+
+    await this.statusOverlay.show(page, 'SAFETY');
+
+    // Trigger recovery engine healing rule compilation
+    const healResult = await this.recoveryEngine.heal(step, candidates, async (phase) => {
+      await this.statusOverlay.show(page, phase);
+    });
+
+    // Resolve Playwright locator and perform post-healing actionability validation
+    const { locator: healedEl, validationPassed } = await this.resolveAndValidateHealedLocator(page, step, healResult);
+
+    const topCandidates = this.getTopCandidatesForReport(step, candidates);
+
+    return { locator: healedEl, healResult, topCandidates, validationPassed };
+  }
+
+
+
+  /**
+   * Scrapes DOM candidate elements with retry mechanisms, handles page loading states,
+   * filters internal slot/container elements, skeleton loaders, and restricts target tagNames.
+   */
   private async scrapeAndFilterCandidates(page: Page, step: OriginalElement): Promise<Candidate[]> {
     const consoleListener = (msg: any) => {
       if (msg.text().includes('[CandidateFinder]')) {
@@ -142,6 +185,7 @@ export class RelocateElement implements IRelocateElement {
     await this.statusOverlay.show(page, 'SCRAPE');
     let candidates = await this.safeFindCandidates(page, step.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : step.OrigTagName);
 
+    // Unregister the browser console listener to prevent duplicate logging and memory leaks
     page.removeListener('console', consoleListener);
 
     const SHADOW_INTERNAL_ID_KEYWORDS = ['slot', 'wrapper', 'placeholder', 'container', 'inner'];
@@ -162,7 +206,7 @@ export class RelocateElement implements IRelocateElement {
 
       return true;
     });
-    console.log(`[RelocateElement] Candidates after internal-element filter: ${candidates.length}`);
+    console.log(`[RelocateElement] Candidates found: ${candidates.length}`);
 
     const ROOT_IDS = new Set(['app', 'root', 'main', 'body', '__next', 'application']);
     const isLoadingStateDom = (cands: typeof candidates): boolean => {
@@ -184,11 +228,11 @@ export class RelocateElement implements IRelocateElement {
     let retries = 15;
     while ((candidates.length === 0 || isLoadingStateDom(candidates)) && retries > 0) {
       const reason = candidates.length === 0 ? '0 candidates (waiting for skeleton/loading to settle)' : 'page still in loading-state (CSS-in-JS hashes only)';
-      console.log(`[RelocateElement] ${reason}. Retrying in 2000ms... (${retries} retries left)`);
-      
+      console.log(`[RelocateElement] Retrying candidate scraping (${retries} left)...`);
+
       // Update status overlay progress (from attempt 1 to 15)
       await this.statusOverlay.show(page, 'SCRAPE', { current: 16 - retries, total: 15 });
-      
+
       await page.waitForTimeout(2000);
       candidates = await this.safeFindCandidates(page, step.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : step.OrigTagName);
       candidates = candidates.filter(c => {
@@ -216,7 +260,99 @@ export class RelocateElement implements IRelocateElement {
     return candidates;
   }
 
-  // Prunes candidate elements based on text & selector keywords down to a budget of maxLimit elements
+  /**
+   * Intercepts browser context errors (e.g. sudden frame navigations) to perform a safe
+   * client-side DOM scraping run via CandidateFinder, retry-looping up to 3 times.
+   */
+  private async safeFindCandidates(page: Page, tagName?: string): Promise<Candidate[]> {
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        if (page.isClosed()) {
+          return [];
+        }
+        return await this.candidateFinder.findCandidates(page, tagName);
+      } catch (err: any) {
+        retries--;
+        const msg = err?.message || String(err);
+        const isNavErr = msg.includes('context was destroyed') || msg.includes('navigation') || msg.includes('navigated') || msg.includes('closed') || msg.includes('detached') || msg.includes('stale') || msg.includes('Target page, context or browser has been closed');
+
+        if (retries > 0 && isNavErr) {
+          console.warn(`[RelocateElement] Scraping failed due to navigation. Retrying in 8s...`);
+          await this.statusOverlay.show(page, 'STABILIZE');
+          await waitForPageSettle(page, 8000, this.statusOverlay);
+          await this.statusOverlay.show(page, 'SCRAPE');
+          continue;
+        }
+        console.error(`[RelocateElement] findCandidates encountered a fatal or unrecoverable error:`, err);
+        throw err;
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Filters candidate element pool by comparing matching tag name or parent shadow host tag names,
+   * and normalizes input fields by inputType configurations.
+   */
+  private getFilteredCandidates(step: OriginalElement, candidates: Candidate[]): Candidate[] {
+    const origTag = (step.OrigTagName || '').toUpperCase().trim();
+    const shadowHostTagsSet = new Set<string>();
+
+    (step.ShadowDomHostArray || []).forEach((sel: string) => {
+      const parts = sel.split(/[\s>+~]+/);
+      parts.forEach(part => {
+        const match = part.match(/^([a-zA-Z0-9-]+)/);
+        if (match) {
+          const tag = match[1].toUpperCase();
+          if (tag && tag !== 'HTML' && tag !== 'BODY') {
+            shadowHostTagsSet.add(tag);
+          }
+        }
+      });
+    });
+
+    (step.ShadowDomFullXpathArray || []).forEach((xpath: string) => {
+      xpath.split('/').filter(Boolean).forEach(seg => {
+        const tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
+        if (tag && tag !== 'HTML' && tag !== 'BODY') {
+          shadowHostTagsSet.add(tag);
+        }
+      });
+    });
+
+    const shadowHostTags = [...shadowHostTagsSet];
+    let pool = candidates;
+
+    if (origTag) {
+      const filtered = candidates.filter(c => {
+        const cTag = c.functional.tagName.toUpperCase();
+        return cTag === origTag || shadowHostTags.includes(cTag);
+      });
+      if (filtered.length > 0) {
+        pool = filtered;
+      }
+    }
+
+    if (origTag === 'INPUT' && step.inputType) {
+      const origInputType = step.inputType.toLowerCase().trim();
+      const inputTypeFiltered = pool.filter(
+        c => (c.functional.inputType || '').toLowerCase() === origInputType
+      );
+      if (inputTypeFiltered.length > 0) {
+        pool = inputTypeFiltered;
+      }
+    }
+
+    return pool;
+  }
+
+
+
+  /**
+   * Prunes scraped candidates down to a manageable budget limit (default: 70 elements).
+   * Calculates relevance scores based on object name, class names, tail tags, and shadow DOM overlaps.
+   */
   private pruneCandidatesByRelevance(step: OriginalElement, candidates: Candidate[], maxLimit = 70): Candidate[] {
     if (candidates.length <= maxLimit) {
       return candidates;
@@ -239,8 +375,9 @@ export class RelocateElement implements IRelocateElement {
     );
 
     const origTailTags: string[] = [];
-    if (step.LocCssSelector) {
-      const parts = step.LocCssSelector.split('>');
+    if (step.LocAddress || step.LocCssSelector) {
+      const locatorSource = step.LocCssSelector || step.LocAddress;
+      const parts = locatorSource.split('>');
       for (let i = parts.length - 1; i >= 0; i--) {
         const match = parts[i].trim().match(/^([a-zA-Z0-9-]+)/);
         if (match) {
@@ -322,7 +459,12 @@ export class RelocateElement implements IRelocateElement {
     return pruned;
   }
 
-  // Sequentially checks visual templates and screenshots to calculate edge similarity
+
+
+  /**
+   * Decides if visual screenshot data is available, filters to top-scored candidates,
+   * triggers sequential browser-context visual contour matching, and saves debugging crops.
+   */
   private async performVisualVerification(
     page: Page,
     step: OriginalElement,
@@ -330,17 +472,17 @@ export class RelocateElement implements IRelocateElement {
     candidates: Candidate[]
   ): Promise<void> {
     if (!step.Screenshot || !step.ElementViewportRect || !Array.isArray(step.ElementViewportRect) || step.ElementViewportRect.length !== 4) {
-      console.log(`[RelocateElement] Step has no recorded Screenshot/ElementViewportRect data. Defaulting to neutral visual similarity.`);
+      console.log(`[RelocateElement] No screenshot data. Skipping visual check.`);
       candidates.forEach(c => {
         c.visual.similarity = 0;
       });
       return;
     }
 
-    console.log(`[RelocateElement] Initializing visual verification matching...`);
+    console.log(`[RelocateElement] Initializing visual matching...`);
     try {
       const tagFilteredCandidates = this.getFilteredCandidates(step, candidates);
-      console.log(`[RelocateElement] Restricting visual comparison to ${tagFilteredCandidates.length} tag-matched candidates (out of ${candidates.length} total).`);
+      console.log(`[RelocateElement] Comparing ${tagFilteredCandidates.length} visual candidates...`);
 
       const structuralRules = this.recoveryEngine.scoringEngine.rules.filter(r => r.name !== 'VisualSimilarityRule');
       const tempEngine = new ScoringEngine(structuralRules);
@@ -406,7 +548,7 @@ export class RelocateElement implements IRelocateElement {
         }
       });
 
-      console.log(`[RelocateElement] Visual verification scores mapped to candidate pool and logged under .workspace/logs/visual-debug/step-${stepIndex + 1}/`);
+      console.log(`[RelocateElement] Visual verification scores saved.`);
     } catch (err) {
       console.warn(`[RelocateElement] Visual comparison failed, defaulting to neutral visual similarity scores.`, err);
       candidates.forEach(c => {
@@ -415,7 +557,10 @@ export class RelocateElement implements IRelocateElement {
     }
   }
 
-  // Visual edge-detection comparison executing in the Playwright Page context
+  /**
+   * Injects edge-detection and canvas cropping scripts directly into the Playwright Page context
+   * to evaluate the visual similarity index between the recorded crop and the candidate element.
+   */
   private async compareCandidateVisually(
     page: Page,
     c: Candidate,
@@ -743,51 +888,12 @@ export class RelocateElement implements IRelocateElement {
     }
   }
 
+
+
   /**
-   * Runs a single full healing cycle: stabilize → scrape → prune → visual verify → score → resolve → validate.
+   * Resolves the healed selector from the AI scores, handles fallback to safety tracking IDs,
+   * scrolls the elements into the active view viewport, and validates input/click actionability gates.
    */
-  private async runHealingCycle(
-    page: Page,
-    step: OriginalElement,
-    stepIndex: number
-  ): Promise<{ locator: Locator; healResult: any; topCandidates: any[]; validationPassed: boolean }> {
-    await this.statusOverlay.show(page, 'STABILIZE');
-    logger.debug(`[RelocateElement] Ensuring page is fully loaded before creating AI payload...`);
-    
-    // Wait for 3 seconds before starting the healing cycle / candidate scraping
-    console.log(`[RelocateElement] Waiting 3 seconds to let layout settle before starting candidate scraping...`);
-    try {
-      await page.waitForTimeout(3000);
-    } catch { /* page closed */ }
-
-    await waitForPageSettle(page, 30000, this.statusOverlay);
-
-    // Scrape DOM and filter loading states/skeletons/internal elements
-    let candidates = await this.scrapeAndFilterCandidates(page, step);
-
-    // Prune candidate pool based on text and structure relevance to fit budget limit
-    await this.statusOverlay.show(page, 'PRUNE');
-    candidates = this.pruneCandidatesByRelevance(step, candidates);
-
-    // Execute sequential visual template match scoring if template screenshots are available
-    await this.performVisualVerification(page, step, stepIndex, candidates);
-
-    await this.statusOverlay.show(page, 'SAFETY');
-
-    // Trigger recovery engine healing rule compilation
-    const healResult = await this.recoveryEngine.heal(step, candidates, async (phase) => {
-      await this.statusOverlay.show(page, phase);
-    });
-
-    // Resolve Playwright locator and perform post-healing actionability validation
-    const { locator: healedEl, validationPassed } = await this.resolveAndValidateHealedLocator(page, step, healResult);
-
-    const topCandidates = this.getTopCandidatesForReport(step, candidates);
-
-    return { locator: healedEl, healResult, topCandidates, validationPassed };
-  }
-
-  // Resolves healed locator fallback details and validates actionability gates
   private async resolveAndValidateHealedLocator(page: Page, step: OriginalElement, healResult: any): Promise<{ locator: Locator; validationPassed: boolean }> {
     let healedEl: Locator;
     const cssLocator = page.locator(healResult.healedLocator).first();
@@ -800,7 +906,7 @@ export class RelocateElement implements IRelocateElement {
       healedEl = cssLocator;
     } else {
       if (healResult.candidateId !== undefined) {
-        console.warn(`[RelocateElement] Healed CSS locator "${healResult.healedLocator}" not visible or detached. Falling back to custom attribute [data-ai-healed-id="${healResult.candidateId}"]`);
+        console.warn(`[RelocateElement] Healed locator not visible. Falling back to safety ID.`);
         healedEl = page.locator(`[data-ai-healed-id="${healResult.candidateId}"]`).first();
       } else {
         healedEl = cssLocator;
@@ -819,7 +925,7 @@ export class RelocateElement implements IRelocateElement {
       validationPassed = await this.elementValidator.validate(healedEl, step.Action === 'Enter');
 
       if (!validationPassed) {
-        console.warn(`[RelocateElement] Healed element "${healResult.healedLocator}" failed initial validation. Waiting 5s and retrying...`);
+        console.warn(`[RelocateElement] Validation failed. Retrying in 5s...`);
         try {
           await page.waitForTimeout(5000);
         } catch { /* page may be closed, ignore */ }
@@ -827,7 +933,7 @@ export class RelocateElement implements IRelocateElement {
       }
 
       if (!validationPassed) {
-        console.warn(`[RelocateElement] Healed element "${healResult.healedLocator}" failed actionability validation after retry.`);
+        console.warn(`[RelocateElement] Validation failed after retry.`);
       }
     } catch (validationErr: any) {
       console.warn(`[RelocateElement] Validation encountered an error: ${validationErr.message || validationErr}.`);
@@ -837,7 +943,12 @@ export class RelocateElement implements IRelocateElement {
     return { locator: healedEl, validationPassed };
   }
 
-  // Generates scored list of candidates for HTML report mapping
+
+
+  /**
+   * Queries the scoring engine rules to retrieve the top candidate details
+   * and maps them into raw diagnostic outputs for execution reports.
+   */
   private getTopCandidatesForReport(step: OriginalElement, candidates: Candidate[]): any[] {
     try {
       const scoredPool = this.recoveryEngine.scoringEngine.scoreCandidates(step, candidates);
@@ -853,86 +964,5 @@ export class RelocateElement implements IRelocateElement {
       console.warn(`[RelocateElement] Failed to retrieve candidate scores for report:`, scoreErr);
       return [];
     }
-  }
-
-  // Scrapes DOM candidates with retry handling in case of sudden page navigation
-  private async safeFindCandidates(page: Page, tagName?: string): Promise<Candidate[]> {
-    let retries = 3;
-    while (retries > 0) {
-      try {
-        if (page.isClosed()) {
-          return [];
-        }
-        return await this.candidateFinder.findCandidates(page, tagName);
-      } catch (err: any) {
-        retries--;
-        const msg = err?.message || String(err);
-        const isNavErr = msg.includes('context was destroyed') || msg.includes('navigation') || msg.includes('navigated') || msg.includes('closed') || msg.includes('detached') || msg.includes('stale') || msg.includes('Target page, context or browser has been closed');
-
-        if (retries > 0 && isNavErr) {
-          console.warn(`[RelocateElement] findCandidates failed due to navigation/context destruction: ${msg}. Waiting 8s for page layout to settle and retrying (${retries} retries left)...`);
-          await this.statusOverlay.show(page, 'STABILIZE');
-          await waitForPageSettle(page, 8000, this.statusOverlay);
-          await this.statusOverlay.show(page, 'SCRAPE');
-          continue;
-        }
-        console.error(`[RelocateElement] findCandidates encountered a fatal or unrecoverable error:`, err);
-        throw err;
-      }
-    }
-    return [];
-  }
-
-  // Filters candidate elements by tag name and input type to speed up visual comparison
-  private getFilteredCandidates(step: OriginalElement, candidates: Candidate[]): Candidate[] {
-    const origTag = (step.OrigTagName || '').toUpperCase().trim();
-    const shadowHostTagsSet = new Set<string>();
-
-    (step.ShadowDomHostArray || []).forEach((sel: string) => {
-      const parts = sel.split(/[\s>+~]+/);
-      parts.forEach(part => {
-        const match = part.match(/^([a-zA-Z0-9-]+)/);
-        if (match) {
-          const tag = match[1].toUpperCase();
-          if (tag && tag !== 'HTML' && tag !== 'BODY') {
-            shadowHostTagsSet.add(tag);
-          }
-        }
-      });
-    });
-
-    (step.ShadowDomFullXpathArray || []).forEach((xpath: string) => {
-      xpath.split('/').filter(Boolean).forEach(seg => {
-        const tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
-        if (tag && tag !== 'HTML' && tag !== 'BODY') {
-          shadowHostTagsSet.add(tag);
-        }
-      });
-    });
-
-    const shadowHostTags = [...shadowHostTagsSet];
-    let pool = candidates;
-
-    if (origTag) {
-      const filtered = candidates.filter(c => {
-        const cTag = c.functional.tagName.toUpperCase();
-        return cTag === origTag || shadowHostTags.includes(cTag);
-      });
-      if (filtered.length > 0) {
-        pool = filtered;
-      }
-    }
-
-    if (origTag === 'INPUT' && step.inputType) {
-      const origInputType = step.inputType.toLowerCase().trim();
-      const inputTypeFiltered = pool.filter(
-        c => (c.functional.inputType || '').toLowerCase() === origInputType
-      );
-      if (inputTypeFiltered.length > 0) {
-        pool = inputTypeFiltered;
-      }
-    }
-
-    return pool;
   }
 }

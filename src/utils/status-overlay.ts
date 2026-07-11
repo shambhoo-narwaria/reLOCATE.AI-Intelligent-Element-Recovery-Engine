@@ -1,5 +1,5 @@
 import { Page, Locator } from 'playwright';
-import { logger } from '../utils/debug-logger';
+import { logger } from './debug-logger';
 
 // Type definitions for overlay phases and positioning
 export type OverlayPhase =

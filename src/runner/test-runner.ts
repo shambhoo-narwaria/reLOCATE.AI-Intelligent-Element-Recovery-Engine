@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { chromium, Locator, Page } from 'playwright';
 import { OriginalElement } from '../interfaces/original-element.interface';
-import { RelocateEngine } from '../index';
+import { Relocator } from '../index';
 import { StepOutcome, HtmlReportGeneratorService } from '../reporting/execution-reporter';
 import { highlightAndScreenshot } from '../utils/visual-utils';
 
@@ -11,13 +11,13 @@ export class TestRunner {
   private outcomes: StepOutcome[] = [];
 
   constructor(
-    private readonly relocateEngine: RelocateEngine
+    private readonly relocator: Relocator
   ) {}
 
   /**
    * Main orchestrator method to execute the test suite steps.
    */
-  async run(useHealing = false): Promise<void> {
+  async run(): Promise<void> {
     this.outcomes = [];
     const testcase = this.loadTestCase();
     const steps = testcase.TestSteps || [];
@@ -34,7 +34,8 @@ export class TestRunner {
       console.log(`\n==================================================`);
       console.log(`[TestRunner] All test steps executed successfully!`);
     } catch (error: any) {
-      console.error(`\n[TestRunner] Test Execution Failed:`, error);
+      const shortErr = (error.message || String(error)).split('\n')[0];
+      console.error(`\n[TestRunner] Test Execution Failed: ${shortErr}`);
     } finally {
       await this.finalizeTestSuite(browser, sigintListener, sigtermListener, runReportDir, projectName);
     }
@@ -131,7 +132,7 @@ export class TestRunner {
   }
 
   /**
-   * Executes Click and Enter steps with retries and healing callbacks.
+   * Executes Click and Enter steps (attempts healing when the original selector fails).
    */
   private async handleInteractionStep(page: Page, step: OriginalElement, index: number, runReportDir: string): Promise<void> {
     let stepSuccess = false;
@@ -148,11 +149,22 @@ export class TestRunner {
       try {
         locator = page.locator(originalLocator).first();
         await locator.waitFor({ state: 'visible', timeout: 2000 });
+
+        // If step has an ObjectName, validate that the resolved element's text contains it
+        if (step.ObjectName) {
+          const expected = step.ObjectName.toLowerCase().trim();
+          const innerText = (await locator.innerText().catch(() => '')).toLowerCase();
+
+          if (!innerText.includes(expected)) {
+            console.log(`[TestRunner] Semantic mismatch for "${step.ObjectName}" (found "${innerText.trim()}"). Forcing healing...`);
+            throw new Error(`Semantic mismatch: Expected "${step.ObjectName}"`);
+          }
+        }
       } catch (err) {
         // Fallback: trigger relocation engine
         didHeal = true;
         triggeredAI = true;
-        locator = await this.relocateEngine.relocateElement(page, originalLocator, step);
+        locator = await this.relocator.relocateElement(page, originalLocator, step, index);
       }
 
       // 2. Scroll the element into view
@@ -195,7 +207,8 @@ export class TestRunner {
 
     } catch (err: any) {
       lastActionErr = err;
-      console.error(`[TestRunner] Interaction step failed:`, err);
+      const shortErr = (err.message || String(err)).split('\n')[0];
+      console.error(`[TestRunner] Interaction step failed: ${shortErr}`);
     }
 
     this.compileInteractionOutcome(step, index, stepSuccess, lastActionErr, healedResultForReport);

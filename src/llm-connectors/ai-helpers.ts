@@ -1,0 +1,80 @@
+import { OriginalElement } from '../interfaces/original-element.interface';
+import { Candidate } from '../interfaces/candidate.interface';
+import { cleanObject, cleanCandidate } from '../utils/candidate-cleaner';
+
+export interface PreparedAIContext {
+  cleanedOriginal: any;
+  cleanedCandidates: any[];
+  systemPrompt: string;
+  userPrompt: string;
+  resolvedName: string;
+}
+
+export function prepareAIContext(original: OriginalElement, candidates: Candidate[]): PreparedAIContext {
+  // Pre-parse shadow host tags from the original's XPath arrays for easier AI comparison
+  const shadowDomHostTags = (original.ShadowDomFullXpathArray || [])
+    .flatMap((xpath: string) =>
+      xpath.split('/').filter(Boolean)
+        .map(seg => seg.replace(/\[\d+\]/g, '').toUpperCase().trim())
+        .filter(tag => tag.includes('-'))  // only custom elements
+    );
+
+  const resolvedName = (original.LocText || original.LocTitle || original.OwnInnerText || '').trim();
+
+  const cleanedOriginal = cleanObject({
+    objectName:          resolvedName,
+    tagName:             original.OrigTagName        || '',
+    id:                  original.LocId              || '',
+    name:                original.LocName            || '',
+    className:           original.LocClassName       || '',
+    role:                original.role               || '',
+    inputType:           original.LocType || original.inputType || '',
+    interactionType:     original.interactionType    || original.Action || '',
+    accessibleName:      resolvedName,
+    locValue:            original.LocValue           || '',
+    labelText:           original.labelText          || '',
+    parentTag:           original.parentTag          || '',
+    parentId:            original.parentId           || '',
+    indexInParent:       original.indexInParent,
+    domDepth:            original.domDepth,
+    nearbyText:          (original.NearByText || original.nearbyText || []).slice(0, 4),
+    cssSelector:         original.LocCssSelector     || '',
+    fullXpath:           original.FullLocXpath || original.fullXpath || original.LocXpath || '',
+    shadowDomFullXpathArray: original.ShadowDomFullXpathArray || [],
+    shadowDomHostTags:   shadowDomHostTags.length > 0 ? [...new Set(shadowDomHostTags)] : undefined,
+  }) || {};
+
+  const cleanedCandidates = candidates.map(c => cleanCandidate(c));
+
+  const systemPrompt = `You are an expert AI element healing system for web UI automation.
+Your task: Given the metadata of an original UI element that CANNOT be located on the current page, and a pool of candidate elements extracted from the current DOM, identify the single candidate MOST LIKELY to be the same logical element.
+
+Evaluation criteria (in priority order):
+1. SEMANTIC match (HIGHEST PRIORITY): Does the candidate's accessibleName or labelText closely match the original's ObjectName, accessibleName, or labelText?
+   *Dynamic Text*: Dropdown/select triggers may show the currently selected value (e.g. 'Active') instead of the default placeholder/label (e.g. 'Status'). Prioritize matching the host component over exact text match.
+2. FUNCTIONAL match: Does the tagName, role, id, name, or inputType match?
+   *CRITICAL — Shadow-internal IDs are NOT unique*: IDs like 'shadow-container', 'inner-wrapper', 'content-slot' repeat across every instance of a web component. When multiple candidates share the same id, disambiguate by accessibleName match against the original's ObjectName. Do NOT select based on id alone.
+   *CRITICAL — Dynamic IDs & Attributes*: IDs or framework-generated attributes/classes containing random hashes, suffixes, or dynamic numbers are dynamic and change across page reloads/sessions. Do NOT penalize a mismatch on these dynamic IDs/classes; instead, focus on the static/semantic parts of the ID or class.
+3. BEHAVIORAL match: Does the interactionType (click/fill/check/select) match?
+4. SHADOW HOST CHAIN match (VERY IMPORTANT): The candidate's 'shadowHostChain' lists ALL custom element ancestors from outermost to innermost. The original's 'shadowDomHostTags' lists the custom element tags extracted from its XPath. Compare these two lists: the correct candidate's shadowHostChain should have the highest overlap with the original's shadowDomHostTags. A candidate nested inside the same web component hierarchy as the original is far more likely to be correct.
+5. CONTEXTUAL match: Do parentTag, ancestorTagNames, landmarkRole, or headingContext align?
+   *Table Context*: If the candidate has 'tableContext', verify the columnHeader matches the original's expected column context. The correct table cell will have the matching columnHeader.
+   *Hierarchy Alignment*: Compare the sequence of tags in the candidate's 'ancestorTagNames' (ordered from innermost parent to HTML/BODY) with the path of tags in the original's 'fullXpath' or 'cssSelector'. A candidate whose structural tag hierarchy matches the original's tag sequence (e.g., HTML -> BODY -> DIV -> UL -> LI -> A) is extremely likely to be correct, even if container IDs or class names differ.
+6. UNLABELED / ICON elements: If the original element is an icon or unlabeled (e.g. OrigTagName is SPAN, SVG, I, or class contains 'icon') and has no accessibleName/objectName/LocText, do not force a semantic match on ObjectName (as the ObjectName might be a nearby text fallback). Instead, prioritize matching on tagName, classNames/className, and DOM tag path hierarchy.`;
+
+  const userPrompt = `Original Element Metadata:
+${JSON.stringify(cleanedOriginal, null, 2)}
+
+Candidate Pool (${cleanedCandidates.length} candidates):
+${JSON.stringify(cleanedCandidates, null, 2)}
+
+Select the single best matching candidate. Output the result matching the requested JSON schema.`;
+
+  return {
+    cleanedOriginal,
+    cleanedCandidates,
+    systemPrompt,
+    userPrompt,
+    resolvedName
+  };
+}

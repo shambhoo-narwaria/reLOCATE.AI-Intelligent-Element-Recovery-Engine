@@ -89,16 +89,35 @@ export class DebugLogger {
     this.write(JSON.stringify(cleaned, null, 2) + '\n');
   }
 
-  logAIRequest(stepName: string, original: unknown, candidates: unknown[], systemPrompt: string, userPrompt: string, apiPayload?: unknown): void {
+  logAIRequest(stepName: string, apiPayload: unknown): void {
     const header = `\n── AI REQUEST (step="${stepName}") ────────────────────────────────────────────\n`;
     this.write(header);
-    this.write(`[SYSTEM PROMPT]\n${systemPrompt}\n\n`);
-    this.write(`[USER PROMPT]\n${userPrompt}\n\n`);
-    this.write(`[ORIGINAL ELEMENT]\n${JSON.stringify(original, null, 2)}\n\n`);
-    this.write(`[CANDIDATES]\n${JSON.stringify(candidates, null, 2)}\n\n`);
-    this.write(`[CANDIDATE COUNT] ${Array.isArray(candidates) ? candidates.length : '?'}\n`);
-    if (apiPayload !== undefined) {
-      this.write(`\n[API PAYLOAD]\n${JSON.stringify(apiPayload, null, 2)}\n\n`);
+
+    let rawTextPrompt = '';
+    let payloadConfig: any = {};
+    try {
+      const payload = apiPayload as any;
+      if (payload?.contents?.[0]?.parts?.[0]?.text) {
+        rawTextPrompt = payload.contents[0].parts[0].text;
+        const { contents, ...rest } = payload;
+        payloadConfig = rest;
+      } else if (payload?.messages) {
+        const sysMsg = payload.messages.find((m: any) => m.role === 'system')?.content || '';
+        const usrMsg = payload.messages.find((m: any) => m.role === 'user')?.content || '';
+        rawTextPrompt = `[SYSTEM PROMPT]\n${sysMsg}\n\n[USER PROMPT]\n${usrMsg}`;
+        const { messages, ...rest } = payload;
+        payloadConfig = rest;
+      } else {
+        payloadConfig = payload;
+      }
+    } catch {}
+
+    if (rawTextPrompt) {
+      this.write(`[RAW PROMPT]\n${rawTextPrompt}\n\n`);
+    }
+
+    if (payloadConfig && Object.keys(payloadConfig).length > 0) {
+      this.write(`[API CONFIG]\n${JSON.stringify(payloadConfig, null, 2)}\n\n`);
     }
   }
 

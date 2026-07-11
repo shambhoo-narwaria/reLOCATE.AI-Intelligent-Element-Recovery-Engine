@@ -21,7 +21,7 @@ const DOM_SETTLE_SILENCE_WINDOW_MS = 600;  // ms of DOM silence required before 
  * and waits for images to finish loading. Capped at `timeoutMs`.
  */
 export async function waitForPageSettle(page: Page, timeoutMs = 30000, statusOverlay?: StatusOverlay): Promise<void> {
-  console.log(`Waiting for page to settle max time: ${timeoutMs}ms`);
+  console.log(`[PageStabilizer] Waiting for page to settle max time: ${timeoutMs}ms`);
   const startTime = Date.now();
 
   // Phase 1: Wait for loaders/spinners/skeletons to disappear

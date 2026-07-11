@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
-import { RecoveryEngine } from './recovery.engine';
+import { RelocateEngine } from './relocate.engine';
 import { ScoringEngine } from '../scoring/scoring.engine';
 import { CandidateFinder } from './candidate-finder';
 import { ElementValidator } from '../validation/element.validator';
@@ -15,7 +15,7 @@ import { waitForPageSettle } from '../utils/page-stabilizer';
 
 export class RelocateElement implements IRelocateElement {
   constructor(
-    private recoveryEngine: RecoveryEngine,
+    private relocateEngine: RelocateEngine,
     private candidateFinder: CandidateFinder,
     private elementValidator: ElementValidator,
     private statusOverlay: StatusOverlay
@@ -155,8 +155,8 @@ export class RelocateElement implements IRelocateElement {
 
     await this.statusOverlay.show(page, 'SAFETY');
 
-    // Trigger recovery engine healing rule compilation
-    const healResult = await this.recoveryEngine.heal(step, candidates, async (phase) => {
+    // Trigger relocate.engine healing rule compilation
+    const healResult = await this.relocateEngine.heal(step, candidates, async (phase) => {
       await this.statusOverlay.show(page, phase);
     });
 
@@ -484,7 +484,7 @@ export class RelocateElement implements IRelocateElement {
       const tagFilteredCandidates = this.getFilteredCandidates(step, candidates);
       console.log(`[RelocateElement] Comparing ${tagFilteredCandidates.length} visual candidates...`);
 
-      const structuralRules = this.recoveryEngine.scoringEngine.rules.filter(r => r.name !== 'VisualSimilarityRule');
+      const structuralRules = this.relocateEngine.scoringEngine.rules.filter(r => r.name !== 'VisualSimilarityRule');
       const tempEngine = new ScoringEngine(structuralRules);
       const preScored = tempEngine.scoreCandidates(step, tagFilteredCandidates);
       const topCandidates = preScored.slice(0, 20).map(item => item.candidate);
@@ -494,7 +494,7 @@ export class RelocateElement implements IRelocateElement {
       const originalScreenshotB64 = step.Screenshot;
       const originalRect = step.ElementViewportRect;
 
-      await saveOriginalTemplateImage(page, originalScreenshotB64, originalRect, stepIndex);
+      await saveOriginalTemplateImage(page, originalScreenshotB64, originalRect, stepIndex, step);
 
       // Pre-capture initial page viewport screenshot and scroll info to avoid redundant screenshotting
       let cachedScreenshotB64 = await page.screenshot({ type: 'jpeg', quality: 80 }).then(buf => buf.toString('base64'));
@@ -951,7 +951,7 @@ export class RelocateElement implements IRelocateElement {
    */
   private getTopCandidatesForReport(step: OriginalElement, candidates: Candidate[]): any[] {
     try {
-      const scoredPool = this.recoveryEngine.scoringEngine.scoreCandidates(step, candidates);
+      const scoredPool = this.relocateEngine.scoringEngine.scoreCandidates(step, candidates);
       return scoredPool.slice(0, 5).map(item => ({
         candidateId: item.candidate.candidateId,
         tagName: item.candidate.functional.tagName,

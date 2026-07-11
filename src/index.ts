@@ -5,13 +5,13 @@ import { Page, Locator } from 'playwright';
 
 // Interfaces
 import { OriginalElement } from './interfaces/original-element.interface';
-import { RecoveryEngine } from './recovery-engine/recovery.engine';
+import { RelocateEngine } from './relocate-engine/relocate.engine';
 import { ScoringEngine } from './scoring/scoring.engine';
 import { SafetyValidator, SemanticValidationGate, VisualValidationGate } from './validation/safety.validator';
-import { CandidateFinder } from './recovery-engine/candidate-finder';
+import { CandidateFinder } from './relocate-engine/candidate-finder';
 import { ElementValidator } from './validation/element.validator';
 import { StatusOverlay } from './utils/status-overlay';
-import { RelocateElement } from './recovery-engine/relocate-element';
+import { RelocateElement } from './relocate-engine/relocate-element';
 
 // LLM Connectors
 import { OpenAIService } from './llm-connectors/openai.service';
@@ -37,7 +37,7 @@ export interface RelocateConfig {
   envPath?: string;
 }
 
-export class RelocateEngine {
+export class Relocator {
   private relocateElementPipeline: RelocateElement;
 
   constructor(config: RelocateConfig = {}) {
@@ -81,13 +81,13 @@ export class RelocateEngine {
     ];
     const safetyValidator = new SafetyValidator(validationGates);
 
-    const recoveryEngine = new RecoveryEngine(aiProvider, scoringEngine, safetyValidator);
+    const relocateEngine = new RelocateEngine(aiProvider, scoringEngine, safetyValidator);
     const candidateFinder = new CandidateFinder();
     const elementValidator = new ElementValidator();
     const statusOverlay = new StatusOverlay();
 
     this.relocateElementPipeline = new RelocateElement(
-      recoveryEngine,
+      relocateEngine,
       candidateFinder,
       elementValidator,
       statusOverlay
@@ -101,7 +101,8 @@ export class RelocateEngine {
   async relocateElement(
     page: Page,
     recordedSelector: string,
-    recordedIdentity: Partial<OriginalElement> & { Action: string; ObjectName?: string }
+    recordedIdentity: Partial<OriginalElement> & { Action: string; ObjectName?: string },
+    stepIndex?: number
   ): Promise<Locator> {
     // Recovery triggers
     const stepMetadata: OriginalElement = {
@@ -115,11 +116,10 @@ export class RelocateEngine {
       Action: recordedIdentity.Action
     } as OriginalElement;
 
-    console.warn(`[RelocateEngine] Target element "${recordedSelector}" failed or recovery requested. Triggering AI Recovery...`);
     const result = await this.relocateElementPipeline.relocate(
       page,
       stepMetadata,
-      999, // Dummy step index
+      stepIndex !== undefined ? stepIndex : 999,
       recordedSelector
     );
 

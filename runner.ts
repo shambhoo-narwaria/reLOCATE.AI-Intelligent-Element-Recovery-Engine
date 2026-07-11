@@ -4,22 +4,20 @@ import * as path from 'path';
 // Load config from the root folder .env file
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
-import { RelocateEngine } from './src/index';
+import { Relocator } from './src/index';
 import { TestRunner } from './src/runner/test-runner';
 
 async function bootstrap() {
   const providerType = (process.env.AI_PROVIDER || 'openai').toLowerCase().trim();
-  console.log(`[Bootstrap] Initializing RelocateEngine with provider: ${providerType}...`);
+  console.log(`[Bootstrap] Initializing Relocator with provider: ${providerType}...`);
 
-  const relocateEngine = new RelocateEngine({
+  const relocator = new Relocator({
     aiProvider: providerType as any
   });
 
-  const testRunner = new TestRunner(relocateEngine);
+  const testRunner = new TestRunner(relocator);
 
-  // Detect usehealing mode and execute test runner
-  const useHealing = process.argv.includes('--usehealing');
-  await testRunner.run(useHealing);
+  await testRunner.run();
 }
 
 // Run the bootstrap routine

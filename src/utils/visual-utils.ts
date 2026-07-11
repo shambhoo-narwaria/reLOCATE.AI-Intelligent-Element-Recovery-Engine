@@ -2,6 +2,7 @@ import { Page, Locator } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from './debug-logger';
+import { OriginalElement } from '../interfaces/original-element.interface';
 
 /**
  * Pre-crops the original template image from the full screenshot and saves it to the visual-debug folder.
@@ -10,7 +11,8 @@ export async function saveOriginalTemplateImage(
   page: Page,
   originalB64: string,
   originalRect: number[],
-  stepIndex: number
+  stepIndex: number,
+  step: OriginalElement
 ): Promise<void> {
   try {
     const origImgData = await page.evaluate(async ({ originalB64, originalRect }) => {
@@ -56,7 +58,9 @@ export async function saveOriginalTemplateImage(
     }, { originalB64, originalRect });
 
     if (origImgData) {
-      const debugDir = path.join(process.cwd(), '.workspace', 'logs', 'visual-debug', `step-${stepIndex + 1}`);
+      const stepNameClean = (step.ObjectName || step.Action || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const folderName = `step-${stepIndex + 1}_${step.Action}_${stepNameClean}`;
+      const debugDir = path.join(process.cwd(), '.workspace', 'logs', 'visual-debug', folderName);
       if (!fs.existsSync(debugDir)) {
         fs.mkdirSync(debugDir, { recursive: true });
       }

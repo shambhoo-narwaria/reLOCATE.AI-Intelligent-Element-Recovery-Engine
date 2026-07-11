@@ -9,8 +9,6 @@
     "build:release": "npm run build && node scripts/build-release.js",
     "start": "node .workspace/dist/runner.js",
     "start:dev": "ts-node runner.ts",
-    "healing": "node .workspace/dist/runner.js --usehealing",
-    "healing:dev": "ts-node runner.ts --usehealing",
     "postinstall": "npx playwright install chromium"
   },
   "dependencies": {

@@ -31,9 +31,7 @@ export class RelocateElement implements IRelocateElement {
    */
   async relocate(
     page: Page,
-    step: OriginalElement,
-    stepIndex: number,
-    originalLocator: string
+    originalElement: OriginalElement
   ): Promise<{
     locator: Locator;
     oldLocator: string;
@@ -45,14 +43,15 @@ export class RelocateElement implements IRelocateElement {
     candidateId?: number;
     topCandidates?: any[];
   }> {
-    logger.warn(`[RelocateElement] Original locator failed for "${step.ObjectName}". Initializing healing...`);
+    const originalLocator = originalElement.LocCssSelector || originalElement.LocXpath || '';
+    logger.warn(`[RelocateElement] Original locator failed for "${originalElement.ObjectName}". Initializing healing...`);
 
     try {
       // Attempt 1: Full healing cycle
       let firstAttempt;
       let firstAttemptErr: any = null;
       try {
-        firstAttempt = await this.runHealingCycle(page, step, stepIndex);
+        firstAttempt = await this.runHealingCycle(page, originalElement);
       } catch (err: any) {
         firstAttemptErr = err;
         console.warn(`[RelocateElement] Healing attempt 1 failed. Re-running...`);
@@ -84,14 +83,14 @@ export class RelocateElement implements IRelocateElement {
 
       let secondAttempt;
       try {
-        secondAttempt = await this.runHealingCycle(page, step, stepIndex);
+        secondAttempt = await this.runHealingCycle(page, originalElement);
       } catch (retryErr: any) {
         console.error(`[RelocateElement] Both healing attempts failed or encountered errors. First: ${firstAttemptErr?.message || firstAttemptErr}, Second: ${retryErr.message || retryErr}`);
         throw firstAttemptErr || retryErr;
       }
 
       if (!secondAttempt.validationPassed) {
-        console.warn(`[RelocateElement] Validation failed on second healing attempt for "${step.ObjectName}". Proceeding with action anyway.`);
+        console.warn(`[RelocateElement] Validation failed on second healing attempt for "${originalElement.ObjectName}". Proceeding with action anyway.`);
       }
 
       await this.statusOverlay.show(page, 'COMPLETE').catch(() => { });
@@ -131,8 +130,7 @@ export class RelocateElement implements IRelocateElement {
    */
   private async runHealingCycle(
     page: Page,
-    step: OriginalElement,
-    stepIndex: number
+    originalElement: OriginalElement
   ): Promise<{ locator: Locator; healResult: any; topCandidates: any[]; validationPassed: boolean }> {
     await this.statusOverlay.show(page, 'STABILIZE');
     // Wait for 3 seconds before starting the healing cycle / candidate scraping
@@ -144,26 +142,26 @@ export class RelocateElement implements IRelocateElement {
     await waitForPageSettle(page, 30000, this.statusOverlay);
 
     // Scrape DOM and filter loading states/skeletons/internal elements
-    let candidates = await this.scrapeAndFilterCandidates(page, step);
+    let candidates = await this.scrapeAndFilterCandidates(page, originalElement);
 
     // Prune candidate pool based on text and structure relevance to fit budget limit
     await this.statusOverlay.show(page, 'PRUNE');
-    candidates = this.pruneCandidatesByRelevance(step, candidates);
+    candidates = this.pruneCandidatesByRelevance(originalElement, candidates);
 
     // Execute sequential visual template match scoring if template screenshots are available
-    await this.performVisualVerification(page, step, stepIndex, candidates);
+    await this.performVisualVerification(page, originalElement, candidates);
 
     await this.statusOverlay.show(page, 'SAFETY');
 
     // Trigger relocate.engine healing rule compilation
-    const healResult = await this.relocateEngine.heal(step, candidates, async (phase) => {
+    const healResult = await this.relocateEngine.heal(originalElement, candidates, async (phase) => {
       await this.statusOverlay.show(page, phase);
     });
 
     // Resolve Playwright locator and perform post-healing actionability validation
-    const { locator: healedEl, validationPassed } = await this.resolveAndValidateHealedLocator(page, step, healResult);
+    const { locator: healedEl, validationPassed } = await this.resolveAndValidateHealedLocator(page, originalElement, healResult);
 
-    const topCandidates = this.getTopCandidatesForReport(step, candidates);
+    const topCandidates = this.getTopCandidatesForReport(originalElement, candidates);
 
     return { locator: healedEl, healResult, topCandidates, validationPassed };
   }
@@ -174,7 +172,7 @@ export class RelocateElement implements IRelocateElement {
    * Scrapes DOM candidate elements with retry mechanisms, handles page loading states,
    * filters internal slot/container elements, skeleton loaders, and restricts target tagNames.
    */
-  private async scrapeAndFilterCandidates(page: Page, step: OriginalElement): Promise<Candidate[]> {
+  private async scrapeAndFilterCandidates(page: Page, originalElement: OriginalElement): Promise<Candidate[]> {
     const consoleListener = (msg: any) => {
       if (msg.text().includes('[CandidateFinder]')) {
         logger.debug(msg.text());
@@ -183,7 +181,7 @@ export class RelocateElement implements IRelocateElement {
     page.on('console', consoleListener);
 
     await this.statusOverlay.show(page, 'SCRAPE');
-    let candidates = await this.safeFindCandidates(page, step.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : step.OrigTagName);
+    let candidates = await this.safeFindCandidates(page, originalElement.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : originalElement.OrigTagName);
 
     // Unregister the browser console listener to prevent duplicate logging and memory leaks
     page.removeListener('console', consoleListener);
@@ -234,7 +232,7 @@ export class RelocateElement implements IRelocateElement {
       await this.statusOverlay.show(page, 'SCRAPE', { current: 16 - retries, total: 15 });
 
       await page.waitForTimeout(2000);
-      candidates = await this.safeFindCandidates(page, step.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : step.OrigTagName);
+      candidates = await this.safeFindCandidates(page, originalElement.OrigTagName?.toUpperCase() === 'SLOT' ? undefined : originalElement.OrigTagName);
       candidates = candidates.filter(c => {
         const testId = (c.functional.dataTestId || '').toLowerCase();
         const css = (c.functional.cssSelector || '').toLowerCase();
@@ -246,8 +244,8 @@ export class RelocateElement implements IRelocateElement {
       retries--;
     }
 
-    if (step.OrigTagName && step.OrigTagName.toUpperCase() !== 'SLOT') {
-      const origTagUpper = step.OrigTagName.toUpperCase();
+    if (originalElement.OrigTagName && originalElement.OrigTagName.toUpperCase() !== 'SLOT') {
+      const origTagUpper = originalElement.OrigTagName.toUpperCase();
       const sameTagCandidates = candidates.filter(c => c.functional.tagName.toUpperCase() === origTagUpper);
       if (sameTagCandidates.length > 0) {
         logger.debug(`[RelocateElement] Tag filter: restricting ${candidates.length} → ${sameTagCandidates.length} candidates with tagName="${origTagUpper}"`);
@@ -295,11 +293,11 @@ export class RelocateElement implements IRelocateElement {
    * Filters candidate element pool by comparing matching tag name or parent shadow host tag names,
    * and normalizes input fields by inputType configurations.
    */
-  private getFilteredCandidates(step: OriginalElement, candidates: Candidate[]): Candidate[] {
-    const origTag = (step.OrigTagName || '').toUpperCase().trim();
+  private getFilteredCandidates(originalElement: OriginalElement, candidates: Candidate[]): Candidate[] {
+    const origTag = (originalElement.OrigTagName || '').toUpperCase().trim();
     const shadowHostTagsSet = new Set<string>();
 
-    (step.ShadowDomHostArray || []).forEach((sel: string) => {
+    (originalElement.ShadowDomHostArray || []).forEach((sel: string) => {
       const parts = sel.split(/[\s>+~]+/);
       parts.forEach(part => {
         const match = part.match(/^([a-zA-Z0-9-]+)/);
@@ -312,7 +310,7 @@ export class RelocateElement implements IRelocateElement {
       });
     });
 
-    (step.ShadowDomFullXpathArray || []).forEach((xpath: string) => {
+    (originalElement.ShadowDomFullXpathArray || []).forEach((xpath: string) => {
       xpath.split('/').filter(Boolean).forEach(seg => {
         const tag = seg.replace(/\[\d+\]/g, '').toUpperCase().trim();
         if (tag && tag !== 'HTML' && tag !== 'BODY') {
@@ -334,8 +332,8 @@ export class RelocateElement implements IRelocateElement {
       }
     }
 
-    if (origTag === 'INPUT' && step.inputType) {
-      const origInputType = step.inputType.toLowerCase().trim();
+    if (origTag === 'INPUT' && originalElement.inputType) {
+      const origInputType = originalElement.inputType.toLowerCase().trim();
       const inputTypeFiltered = pool.filter(
         c => (c.functional.inputType || '').toLowerCase() === origInputType
       );
@@ -353,20 +351,20 @@ export class RelocateElement implements IRelocateElement {
    * Prunes scraped candidates down to a manageable budget limit (default: 70 elements).
    * Calculates relevance scores based on object name, class names, tail tags, and shadow DOM overlaps.
    */
-  private pruneCandidatesByRelevance(step: OriginalElement, candidates: Candidate[], maxLimit = 70): Candidate[] {
+  private pruneCandidatesByRelevance(originalElement: OriginalElement, candidates: Candidate[], maxLimit = 70): Candidate[] {
     if (candidates.length <= maxLimit) {
       return candidates;
     }
 
-    const resolvedName = (step.LocText || step.LocTitle || step.OwnInnerText || '').trim();
+    const resolvedName = (originalElement.LocText || originalElement.LocTitle || originalElement.OwnInnerText || '').trim();
     const objectWords = resolvedName.toLowerCase().split(/\W+/).filter(Boolean);
-    const nearbyWords = (step.NearByText || step.nearbyText || []).slice(0, 4).join(' ').toLowerCase().split(/\W+/).filter(Boolean);
-    const classWords = (step.LocClassName || '').toLowerCase().split(/\W+/).filter(Boolean);
+    const nearbyWords = (originalElement.NearByText || originalElement.nearbyText || []).slice(0, 4).join(' ').toLowerCase().split(/\W+/).filter(Boolean);
+    const classWords = (originalElement.LocClassName || '').toLowerCase().split(/\W+/).filter(Boolean);
 
     const allKeywords = [...new Set([...objectWords, ...nearbyWords, ...classWords])];
 
     const origHostTagSet = new Set<string>(
-      (step.ShadowDomHostArray || []).flatMap((sel: string) =>
+      (originalElement.ShadowDomHostArray || []).flatMap((sel: string) =>
         sel.split(/[\s>+~]+/).map((p: string) => {
           const m = p.match(/^([a-zA-Z0-9-]+)/);
           return m ? m[1].toUpperCase() : '';
@@ -375,8 +373,8 @@ export class RelocateElement implements IRelocateElement {
     );
 
     const origTailTags: string[] = [];
-    if (step.LocAddress || step.LocCssSelector) {
-      const locatorSource = step.LocCssSelector || step.LocAddress;
+    if (originalElement.LocAddress || originalElement.LocCssSelector) {
+      const locatorSource = originalElement.LocCssSelector || originalElement.LocAddress;
       const parts = locatorSource.split('>');
       for (let i = parts.length - 1; i >= 0; i--) {
         const match = parts[i].trim().match(/^([a-zA-Z0-9-]+)/);
@@ -400,11 +398,11 @@ export class RelocateElement implements IRelocateElement {
 
       let hits = allKeywords.filter(kw => haystack.includes(kw)).length;
 
-      if (step.LocText && c.semantic.text) {
-        const targetLen = step.LocText.length;
+      if (originalElement.LocText && c.semantic.text) {
+        const targetLen = originalElement.LocText.length;
         const candLen = c.semantic.text.length;
         const textLower = c.semantic.text.toLowerCase();
-        const targetLower = step.LocText.toLowerCase();
+        const targetLower = originalElement.LocText.toLowerCase();
 
         if (textLower.includes(targetLower) || (c.semantic.accessibleName && c.semantic.accessibleName.toLowerCase().includes(targetLower))) {
           hits += 5;
@@ -414,9 +412,9 @@ export class RelocateElement implements IRelocateElement {
         }
       }
 
-      if (step.LocClassName && c.functional.className) {
+      if (originalElement.LocClassName && c.functional.className) {
         const classLower = c.functional.className.toLowerCase();
-        const targetClassLower = step.LocClassName.toLowerCase();
+        const targetClassLower = originalElement.LocClassName.toLowerCase();
         if (classLower.includes(targetClassLower)) {
           hits += 5;
           const lenDiff = Math.abs(classLower.length - targetClassLower.length);
@@ -467,11 +465,11 @@ export class RelocateElement implements IRelocateElement {
    */
   private async performVisualVerification(
     page: Page,
-    step: OriginalElement,
-    stepIndex: number,
+    originalElement: OriginalElement,
     candidates: Candidate[]
   ): Promise<void> {
-    if (!step.Screenshot || !step.ElementViewportRect || !Array.isArray(step.ElementViewportRect) || step.ElementViewportRect.length !== 4) {
+    const stepIndex = originalElement.index !== undefined ? originalElement.index : 999;
+    if (!originalElement.Screenshot || !originalElement.ElementViewportRect || !Array.isArray(originalElement.ElementViewportRect) || originalElement.ElementViewportRect.length !== 4) {
       console.log(`[RelocateElement] No screenshot data. Skipping visual check.`);
       candidates.forEach(c => {
         c.visual.similarity = 0;
@@ -481,20 +479,20 @@ export class RelocateElement implements IRelocateElement {
 
     console.log(`[RelocateElement] Initializing visual matching...`);
     try {
-      const tagFilteredCandidates = this.getFilteredCandidates(step, candidates);
+      const tagFilteredCandidates = this.getFilteredCandidates(originalElement, candidates);
       console.log(`[RelocateElement] Comparing ${tagFilteredCandidates.length} visual candidates...`);
 
       const structuralRules = this.relocateEngine.scoringEngine.rules.filter(r => r.name !== 'VisualSimilarityRule');
       const tempEngine = new ScoringEngine(structuralRules);
-      const preScored = tempEngine.scoreCandidates(step, tagFilteredCandidates);
+      const preScored = tempEngine.scoreCandidates(originalElement, tagFilteredCandidates);
       const topCandidates = preScored.slice(0, 20).map(item => item.candidate);
       logger.debug(`[RelocateElement] Pre-scored tag-matched candidates. Verifying top ${topCandidates.length} sequentially with scroll-into-view.`);
 
       const similarities: any[] = [];
-      const originalScreenshotB64 = step.Screenshot;
-      const originalRect = step.ElementViewportRect;
+      const originalScreenshotB64 = originalElement.Screenshot;
+      const originalRect = originalElement.ElementViewportRect;
 
-      await saveOriginalTemplateImage(page, originalScreenshotB64, originalRect, stepIndex, step);
+      await saveOriginalTemplateImage(page, originalScreenshotB64, originalRect, originalElement);
 
       // Pre-capture initial page viewport screenshot and scroll info to avoid redundant screenshotting
       let cachedScreenshotB64 = await page.screenshot({ type: 'jpeg', quality: 80 }).then(buf => buf.toString('base64'));
@@ -563,29 +561,29 @@ export class RelocateElement implements IRelocateElement {
    */
   private async compareCandidateVisually(
     page: Page,
-    c: Candidate,
-    originalScreenshotB64: string,
+    candidate: Candidate,
+    originalScreenshotBase64: string,
     originalRect: number[],
-    index: number,
-    total: number,
-    cachedScreenshotB64?: string,
+    currentIndex: number,
+    totalCandidates: number,
+    cachedScreenshotBase64?: string,
     cachedScroll?: { x: number; y: number; w: number; h: number }
   ): Promise<{ candidateId: number; similarity: number; origImgData?: string; candImgData?: string; updatedScreenshotB64?: string; updatedScroll?: any }> {
-    await this.statusOverlay.show(page, 'VISUAL', { current: index, total });
+    await this.statusOverlay.show(page, 'VISUAL', { current: currentIndex, total: totalCandidates });
     try {
-      let locator = page.locator(`[data-ai-healed-id="${c.candidateId}"]`).first();
+      let locator = page.locator(`[data-ai-healed-id="${candidate.candidateId}"]`).first();
       let isVisible = await locator.isVisible();
 
-      if (!isVisible && c.functional.cssSelector) {
-        const fallbackLoc = page.locator(c.functional.cssSelector).first();
+      if (!isVisible && candidate.functional.cssSelector) {
+        const fallbackLoc = page.locator(candidate.functional.cssSelector).first();
         if (await fallbackLoc.count() > 0 && await fallbackLoc.isVisible()) {
           try {
             await fallbackLoc.evaluate((el, id) => {
               el.setAttribute('data-ai-healed-id', id);
-            }, String(c.candidateId));
+            }, String(candidate.candidateId));
             locator = fallbackLoc;
             isVisible = true;
-            logger.debug(`[RelocateElement] Recovered visibility for candidate ${c.candidateId} (${c.functional.tagName}) by re-stamping CSS selector.`);
+            logger.debug(`[RelocateElement] Recovered visibility for candidate ${candidate.candidateId} (${candidate.functional.tagName}) by re-stamping CSS selector.`);
           } catch (err: any) { }
         }
       }
@@ -631,7 +629,7 @@ export class RelocateElement implements IRelocateElement {
         };
       }).catch(() => null);
 
-      let currentScreenshotB64 = cachedScreenshotB64 || '';
+      let currentScreenshotB64 = cachedScreenshotBase64 || '';
       let scrollInfo = cachedScroll || { x: 0, y: 0, w: 1920, h: 1080 };
       let updatedScreenshotB64: string | undefined;
       let updatedScroll: any;
@@ -668,7 +666,7 @@ export class RelocateElement implements IRelocateElement {
         updatedScroll = scrollInfo;
       }
 
-      await this.statusOverlay.show(page, 'VISUAL', { current: index, total, candidateRect: currentRect });
+      await this.statusOverlay.show(page, 'VISUAL', { current: currentIndex, total: totalCandidates, candidateRect: currentRect });
 
       const result = await page.evaluate(async ({ originalB64, currentB64, originalRect, candRect, devicePixelRatio }) => {
         const loadImage = (src: string): Promise<HTMLImageElement> => {
@@ -864,7 +862,7 @@ export class RelocateElement implements IRelocateElement {
           return { similarity: 0 };
         }
       }, {
-        originalB64: originalScreenshotB64,
+        originalB64: originalScreenshotBase64,
         currentB64: currentScreenshotB64,
         originalRect: originalRect,
         candRect: currentRect,
@@ -873,7 +871,7 @@ export class RelocateElement implements IRelocateElement {
 
       if (result && typeof result === 'object') {
         return {
-          candidateId: c.candidateId,
+          candidateId: candidate.candidateId,
           similarity: forceZeroScore ? 0 : result.similarity,
           origImgData: result.origImgData,
           candImgData: result.candImgData,
@@ -881,10 +879,10 @@ export class RelocateElement implements IRelocateElement {
           updatedScroll
         };
       }
-      return { candidateId: c.candidateId, similarity: 0 };
+      return { candidateId: candidate.candidateId, similarity: 0 };
     } catch (err) {
-      console.warn(`[RelocateElement] Visual comparison failed for candidate ${c.candidateId}, defaulting to 0 similarity.`, err);
-      return { candidateId: c.candidateId, similarity: 0 };
+      console.warn(`[RelocateElement] Visual comparison failed for candidate ${candidate.candidateId}, defaulting to 0 similarity.`, err);
+      return { candidateId: candidate.candidateId, similarity: 0 };
     }
   }
 
@@ -894,7 +892,7 @@ export class RelocateElement implements IRelocateElement {
    * Resolves the healed selector from the AI scores, handles fallback to safety tracking IDs,
    * scrolls the elements into the active view viewport, and validates input/click actionability gates.
    */
-  private async resolveAndValidateHealedLocator(page: Page, step: OriginalElement, healResult: any): Promise<{ locator: Locator; validationPassed: boolean }> {
+  private async resolveAndValidateHealedLocator(page: Page, originalElement: OriginalElement, healResult: any): Promise<{ locator: Locator; validationPassed: boolean }> {
     let healedEl: Locator;
     const cssLocator = page.locator(healResult.healedLocator).first();
     let cssVisible = false;
@@ -922,14 +920,14 @@ export class RelocateElement implements IRelocateElement {
     let validationPassed = false;
     try {
       await this.statusOverlay.show(page, 'VALIDATE');
-      validationPassed = await this.elementValidator.validate(healedEl, step.Action === 'Enter');
+      validationPassed = await this.elementValidator.validate(healedEl, originalElement.Action === 'Enter');
 
       if (!validationPassed) {
         console.warn(`[RelocateElement] Validation failed. Retrying in 5s...`);
         try {
           await page.waitForTimeout(5000);
         } catch { /* page may be closed, ignore */ }
-        validationPassed = await this.elementValidator.validate(healedEl, step.Action === 'Enter');
+        validationPassed = await this.elementValidator.validate(healedEl, originalElement.Action === 'Enter');
       }
 
       if (!validationPassed) {
@@ -949,9 +947,9 @@ export class RelocateElement implements IRelocateElement {
    * Queries the scoring engine rules to retrieve the top candidate details
    * and maps them into raw diagnostic outputs for execution reports.
    */
-  private getTopCandidatesForReport(step: OriginalElement, candidates: Candidate[]): any[] {
+  private getTopCandidatesForReport(originalElement: OriginalElement, candidates: Candidate[]): any[] {
     try {
-      const scoredPool = this.relocateEngine.scoringEngine.scoreCandidates(step, candidates);
+      const scoredPool = this.relocateEngine.scoringEngine.scoreCandidates(originalElement, candidates);
       return scoredPool.slice(0, 5).map(item => ({
         candidateId: item.candidate.candidateId,
         tagName: item.candidate.functional.tagName,

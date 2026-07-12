@@ -200,7 +200,7 @@ export class RelocateEngine {
     onPhaseChange?: (phase: 'AI' | 'SAFETY') => Promise<void>
   ): Promise<{ candidate: Candidate; confidence: number; reason: string } | null> {
 
-    const isStepTesting = original.stepIndex === 4;
+    const isStepTesting = original.index === 4;
     if (config.USE_AI_MODEL === false && !isStepTesting) {
       console.log(`[RelocateEngine] AI Reasoning is disabled or bypassed for this step (USE_AI_MODEL=${config.USE_AI_MODEL}, isStepTesting=${isStepTesting}). Falling back directly to highest rule-based candidate.`);
       if (onPhaseChange) await onPhaseChange('SAFETY');

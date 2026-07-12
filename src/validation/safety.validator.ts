@@ -120,10 +120,10 @@ export class SafetyValidator {
   }
 }
 
-export async function validateOriginalLocatorSemantically(element: Locator, step: OriginalElement): Promise<boolean> {
-  const rawTarget = step.LocText || step.LocTitle || step.OwnInnerText || '';
+export async function validateOriginalLocatorSemantically(element: Locator, originalElement: OriginalElement): Promise<boolean> {
+  const rawTarget = originalElement.LocText || originalElement.LocTitle || originalElement.OwnInnerText || '';
   if (!rawTarget.trim()) {
-    logger.debug(`[validateOriginalLocatorSemantically] Bypassing semantic validation: No target text present in step.`);
+    logger.debug(`[validateOriginalLocatorSemantically] Bypassing semantic validation: No target text present in originalElement.`);
     return true;
   }
 

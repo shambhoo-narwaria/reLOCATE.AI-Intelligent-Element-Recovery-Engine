@@ -126,7 +126,8 @@ import { RelocateEngine } from 'relocate-ai';
 const relocate = new RelocateEngine({ aiProvider: 'gemini' });
 
 // Relocate element dynamically (checks selector first, recovers if failed)
-const element = await relocate.relocateElement(page, '#mutated-login-btn', {
+const element = await relocate.relocateElement(page, {
+  LocCssSelector: '#mutated-login-btn',
   ObjectName: 'Login Button',
   Action: 'Click',
   LocTagName: 'BUTTON',

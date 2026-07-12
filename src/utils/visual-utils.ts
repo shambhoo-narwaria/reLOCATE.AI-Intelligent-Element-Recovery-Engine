@@ -11,8 +11,7 @@ export async function saveOriginalTemplateImage(
   page: Page,
   originalB64: string,
   originalRect: number[],
-  stepIndex: number,
-  step: OriginalElement
+  originalElement: OriginalElement
 ): Promise<void> {
   try {
     const origImgData = await page.evaluate(async ({ originalB64, originalRect }) => {
@@ -58,8 +57,9 @@ export async function saveOriginalTemplateImage(
     }, { originalB64, originalRect });
 
     if (origImgData) {
-      const stepNameClean = (step.ObjectName || step.Action || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const folderName = `step-${stepIndex + 1}_${step.Action}_${stepNameClean}`;
+      const stepIndex = originalElement.index !== undefined ? originalElement.index : 999;
+      const stepNameClean = (originalElement.ObjectName || originalElement.Action || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const folderName = `step-${stepIndex + 1}_${originalElement.Action}_${stepNameClean}`;
       const debugDir = path.join(process.cwd(), '.workspace', 'logs', 'visual-debug', folderName);
       if (!fs.existsSync(debugDir)) {
         fs.mkdirSync(debugDir, { recursive: true });

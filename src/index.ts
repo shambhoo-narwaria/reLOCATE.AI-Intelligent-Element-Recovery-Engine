@@ -100,27 +100,23 @@ export class Relocator {
    */
   async relocateElement(
     page: Page,
-    recordedSelector: string,
-    recordedIdentity: Partial<OriginalElement> & { Action: string; ObjectName?: string },
-    stepIndex?: number
+    originalElement: Partial<OriginalElement> & { Action: string; ObjectName?: string }
   ): Promise<Locator> {
     // Recovery triggers
-    const stepMetadata: OriginalElement = {
-      ...recordedIdentity,
-      ObjectName: recordedIdentity.ObjectName,
-      LocCssSelector: recordedIdentity.LocCssSelector,
-      interactionType: (recordedIdentity.interactionType || (recordedIdentity.Action?.toLowerCase() === 'enter' ? 'fill' : recordedIdentity.Action?.toLowerCase())) as any,
-      OrigTagName: recordedIdentity.OrigTagName || recordedIdentity.LocTagName,
-      LocTagName: recordedIdentity.LocTagName || recordedIdentity.OrigTagName,
-      LocText: recordedIdentity.LocText || recordedIdentity.labelText || recordedIdentity.accessibleName || recordedIdentity.OwnInnerText,
-      Action: recordedIdentity.Action
+    const normalizedElement: OriginalElement = {
+      ...originalElement,
+      ObjectName: originalElement.ObjectName,
+      LocCssSelector: originalElement.LocCssSelector,
+      interactionType: (originalElement.interactionType || (originalElement.Action?.toLowerCase() === 'enter' ? 'fill' : originalElement.Action?.toLowerCase())) as any,
+      OrigTagName: originalElement.OrigTagName || originalElement.LocTagName,
+      LocTagName: originalElement.LocTagName || originalElement.OrigTagName,
+      LocText: originalElement.LocText || originalElement.labelText || originalElement.accessibleName || originalElement.OwnInnerText,
+      Action: originalElement.Action
     } as OriginalElement;
 
     const result = await this.relocateElementPipeline.relocate(
       page,
-      stepMetadata,
-      stepIndex !== undefined ? stepIndex : 999,
-      recordedSelector
+      normalizedElement
     );
 
     return result.locator;

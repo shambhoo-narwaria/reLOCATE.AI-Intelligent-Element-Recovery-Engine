@@ -67,6 +67,8 @@ export interface OriginalElement {
   indexInParent?: number;
   /** DOM depth levels from root element */
   domDepth?: number;
+  /** Index of the execution step */
+  index?: number;
 
   [key: string]: any;
 }

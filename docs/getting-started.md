@@ -44,11 +44,9 @@ test.describe('Smart Client Login Test', () => {
   test('Execute action with element recovery', async ({ page }) => {
     await page.goto('https://stg.mayer.hdp-cicd.zeiss.com');
 
-    // 2. Define the recorded selector (which might fail in future releases)
-    const recordedSelector = 'button#login-btn-mutated-id-123';
-
-    // 3. Relocate element dynamically (checks selector first, recovers if failed)
-    const loginButton = await relocate.relocateElement(page, recordedSelector, {
+    // 2. Relocate element dynamically (checks selector first, recovers if failed)
+    const loginButton = await relocate.relocateElement(page, {
+      LocCssSelector: 'button#login-btn-mutated-id-123',
       ObjectName: 'Login Button',
       Action: 'Click',
       LocTagName: 'BUTTON',
@@ -57,10 +55,10 @@ test.describe('Smart Client Login Test', () => {
       LocClassName: 'zui-btn zui-btn-primary'
     });
 
-    // 4. Execute the click action on the resolved Playwright Locator
+    // 3. Execute the click action on the resolved Playwright Locator
     await loginButton.click();
 
-    // 5. Verify outcome
+    // 4. Verify outcome
     await expect(page.locator('.dashboard')).toBeVisible();
   });
 });
@@ -87,15 +85,13 @@ constructor(config?: RelocateConfig)
 ```typescript
 async relocateElement(
   page: Page,
-  recordedSelector: string,
-  recordedIdentity: Partial<OriginalElement> & { Action: string; ObjectName?: string }
+  originalElement: Partial<OriginalElement> & { Action: string; ObjectName?: string }
 ): Promise<Locator>
 ```
 
 #### Parameters
 1. **`page`** (`Page`): The active Playwright page instance.
-2. **`recordedSelector`** (`string`): The selector that was originally recorded. Used as a reference to infer fallback paths and element structures.
-3. **`recordedIdentity`** (`OriginalElement`): The metadata describing the expected state and characteristics of the element. Providing more properties increases recovery scoring accuracy.
+2. **`originalElement`** (`OriginalElement`): The metadata describing the expected state, selectors (e.g. `LocCssSelector`), and characteristics of the element. Providing more properties increases recovery scoring accuracy.
 
 The recovery engine categorizes these properties into three types:
 

@@ -102,6 +102,7 @@ export class TestRunner {
    * Dispatches steps according to action type.
    */
   private async executeTestStep(page: Page, step: OriginalElement, index: number, totalSteps: number, runReportDir: string): Promise<void> {
+    step.index = index;
     console.log(`\n==================================================`);
     console.log(`[TestRunner] STEP ${index + 1}/${totalSteps}: Action="${step.Action}" Object="${step.ObjectName}"`);
 
@@ -164,7 +165,7 @@ export class TestRunner {
         // Fallback: trigger relocation engine
         didHeal = true;
         triggeredAI = true;
-        locator = await this.relocator.relocateElement(page, originalLocator, step, index);
+        locator = await this.relocator.relocateElement(page, step);
       }
 
       // 2. Scroll the element into view

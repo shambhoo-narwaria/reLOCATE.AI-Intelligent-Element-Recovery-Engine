@@ -4,9 +4,7 @@ import { OriginalElement } from './original-element.interface';
 export interface IRelocateElement {
   relocate(
     page: Page,
-    step: OriginalElement,
-    stepIndex: number,
-    originalLocator: string
+    originalElement: OriginalElement
   ): Promise<{
     locator: Locator;
     oldLocator: string;

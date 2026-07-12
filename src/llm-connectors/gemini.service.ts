@@ -3,7 +3,7 @@ import { AIProvider } from '../interfaces/ai-provider.interface';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Candidate } from '../interfaces/candidate.interface';
 import { logger } from '../utils/debug-logger';
-import { prepareAIContext } from './ai-helpers';
+import { prepareAIContext } from './prompt-builder';
 
 function postJson(url: string, body: any): Promise<any> {
   return new Promise((resolve, reject) => {

@@ -12,6 +12,7 @@ import { CandidateFinder } from './relocate-engine/candidate-finder';
 import { ElementValidator } from './validation/element.validator';
 import { StatusOverlay } from './utils/status-overlay';
 import { RelocateElement } from './relocate-engine/relocate-element';
+import { McpRecoveryAgent } from './mcp/mcp-recovery-agent';
 
 // LLM Connectors
 import { OpenAIService } from './llm-connectors/openai.service';
@@ -85,12 +86,14 @@ export class Relocator {
     const candidateFinder = new CandidateFinder();
     const elementValidator = new ElementValidator();
     const statusOverlay = new StatusOverlay();
+    const mcpRecoveryAgent = new McpRecoveryAgent();
 
     this.relocateElementPipeline = new RelocateElement(
       relocateEngine,
       candidateFinder,
       elementValidator,
-      statusOverlay
+      statusOverlay,
+      mcpRecoveryAgent
     );
   }
 

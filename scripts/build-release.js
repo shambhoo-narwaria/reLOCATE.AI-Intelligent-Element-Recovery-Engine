@@ -19,20 +19,20 @@ function copyDirSync(src, dest) {
 
 // Resolve paths relative to root directory
 const rootDir = path.resolve(__dirname, '..');
-const releaseDir = path.join(rootDir, '.workspace', 'out');
+const releaseDir = path.join(rootDir, '.workspace', 'release');
 
-console.log('Cleaning old out folder...');
+console.log('Cleaning old release folder...');
 if (fs.existsSync(releaseDir)) {
   const entries = fs.readdirSync(releaseDir);
   for (const entry of entries) {
     try {
       fs.rmSync(path.join(releaseDir, entry), { recursive: true, force: true });
     } catch (e) {
-      console.warn(`[Warning] Could not clean "${entry}" inside out folder: ${e.message}`);
+      console.warn(`[Warning] Could not clean "${entry}" inside release folder: ${e.message}`);
     }
   }
 } else {
-  fs.mkdirSync(releaseDir);
+  fs.mkdirSync(releaseDir, { recursive: true });
 }
 
 // Cache portable Node.js binaries
@@ -287,4 +287,4 @@ This directory contains the production release package of the reLOCATE.AI elemen
 `;
 fs.writeFileSync(path.join(releaseDir, 'README.md'), readmeContent);
 
-console.log('Release package successfully built in "./.workspace/out" directory!');
+console.log('Release package successfully built in "./.workspace/release" directory!');

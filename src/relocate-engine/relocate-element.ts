@@ -12,13 +12,15 @@ import { logger } from '../utils/debug-logger';
 import { saveBase64Image, saveOriginalTemplateImage } from '../utils/visual-utils';
 import { IRelocateElement } from '../interfaces/relocate-element.interface';
 import { waitForPageSettle } from '../utils/page-stabilizer';
+import { McpRecoveryAgent } from '../mcp/mcp-recovery-agent';
 
 export class RelocateElement implements IRelocateElement {
   constructor(
     private relocateEngine: RelocateEngine,
     private candidateFinder: CandidateFinder,
     private elementValidator: ElementValidator,
-    private statusOverlay: StatusOverlay
+    private statusOverlay: StatusOverlay,
+    private mcpRecoveryAgent?: McpRecoveryAgent
   ) { }
 
 
@@ -47,14 +49,14 @@ export class RelocateElement implements IRelocateElement {
     logger.warn(`[RelocateElement] Original locator failed for "${originalElement.ObjectName}". Initializing healing...`);
 
     try {
-      // Attempt 1: Full healing cycle
+      // Attempt 1: Full Tier 2 healing cycle
       let firstAttempt;
       let firstAttemptErr: any = null;
       try {
         firstAttempt = await this.runHealingCycle(page, originalElement);
       } catch (err: any) {
         firstAttemptErr = err;
-        console.warn(`[RelocateElement] Healing attempt 1 failed. Re-running...`);
+        console.warn(`[RelocateElement] Tier 2 Healing attempt 1 failed. Re-running...`);
       }
 
       // If validation passed on first attempt, return immediately
@@ -75,38 +77,94 @@ export class RelocateElement implements IRelocateElement {
         };
       }
 
-      // Attempt 2: Validation failed or error occurred on Attempt 1
-      console.warn(`[RelocateElement] Re-running healing cycle...`);
+      // Attempt 2: Full Tier 2 healing cycle
+      console.warn(`[RelocateElement] Re-running Tier 2 healing cycle (Attempt 2)...`);
       try {
         await waitForPageSettle(page, 10000, this.statusOverlay);
       } catch { /* page may be closed */ }
 
       let secondAttempt;
+      let secondAttemptErr: any = null;
       try {
         secondAttempt = await this.runHealingCycle(page, originalElement);
       } catch (retryErr: any) {
-        console.error(`[RelocateElement] Both healing attempts failed or encountered errors. First: ${firstAttemptErr?.message || firstAttemptErr}, Second: ${retryErr.message || retryErr}`);
-        throw firstAttemptErr || retryErr;
+        secondAttemptErr = retryErr;
+        console.error(`[RelocateElement] Both Tier 2 healing attempts failed or encountered errors. First: ${firstAttemptErr?.message || firstAttemptErr}, Second: ${retryErr.message || retryErr}`);
       }
 
-      if (!secondAttempt.validationPassed) {
-        console.warn(`[RelocateElement] Validation failed on second healing attempt for "${originalElement.ObjectName}". Proceeding with action anyway.`);
+      // If validation passed on second attempt, return immediately
+      if (secondAttempt && secondAttempt.validationPassed) {
+        await this.statusOverlay.show(page, 'COMPLETE').catch(() => { });
+        await page.waitForTimeout(1000).catch(() => { });
+
+        return {
+          locator: secondAttempt.locator,
+          oldLocator: originalLocator,
+          newLocator: secondAttempt.healResult.healedLocator,
+          didHeal: true,
+          triggeredAI: secondAttempt.healResult.triggeredAI,
+          confidence: secondAttempt.healResult.confidence,
+          reason: secondAttempt.healResult.reason,
+          candidateId: secondAttempt.healResult.candidateId,
+          topCandidates: secondAttempt.topCandidates
+        };
       }
 
-      await this.statusOverlay.show(page, 'COMPLETE').catch(() => { });
-      await page.waitForTimeout(1000).catch(() => { });
+      // ─────────────────────────────────────────────────────────────────
+      // TIER 3: Single-Run Topmost McpRecoveryAgent Fallback
+      // Executes EXACTLY ONCE at the end only if both Tier 2 attempts failed!
+      // ─────────────────────────────────────────────────────────────────
+      if (this.mcpRecoveryAgent) {
+        console.warn(`[RelocateElement] Escalating to Tier 3 McpRecoveryAgent (Single Fallback Attempt) for "${originalElement.ObjectName}"...`);
+        try {
+          const mcpResult = await this.mcpRecoveryAgent.recoverElement(
+            page,
+            originalElement,
+            (secondAttemptErr || firstAttemptErr)?.message || 'Both Tier 2 heuristic cycles failed pre-action validation',
+            (secondAttempt?.topCandidates || firstAttempt?.topCandidates || [])
+          );
 
-      return {
-        locator: secondAttempt.locator,
-        oldLocator: originalLocator,
-        newLocator: secondAttempt.healResult.healedLocator,
-        didHeal: true,
-        triggeredAI: secondAttempt.healResult.triggeredAI,
-        confidence: secondAttempt.healResult.confidence,
-        reason: secondAttempt.healResult.reason + (secondAttempt.validationPassed ? '' : ' (validation failed, proceeding anyway)'),
-        candidateId: secondAttempt.healResult.candidateId,
-        topCandidates: secondAttempt.topCandidates
-      };
+          if (mcpResult && mcpResult.success) {
+            await this.statusOverlay.show(page, 'COMPLETE').catch(() => { });
+            await page.waitForTimeout(1000).catch(() => { });
+
+            return {
+              locator: page.locator(mcpResult.healedSelector).first(),
+              oldLocator: originalLocator,
+              newLocator: mcpResult.healedSelector,
+              didHeal: true,
+              triggeredAI: true,
+              confidence: mcpResult.confidenceScore,
+              reason: `Tier 3 Single-Run MCP Recovery: ${mcpResult.reasoning}`,
+              candidateId: mcpResult.healedCandidateId,
+              topCandidates: secondAttempt?.topCandidates || firstAttempt?.topCandidates
+            };
+          }
+        } catch (mcpErr: any) {
+          console.error(`[RelocateElement] Tier 3 McpRecoveryAgent failed:`, mcpErr.message || mcpErr);
+        }
+      }
+
+      // If Tier 3 failed or unavailable, proceed with second attempt fallback or throw error
+      if (secondAttempt) {
+        console.warn(`[RelocateElement] Validation failed on both attempts for "${originalElement.ObjectName}". Proceeding with second attempt locator anyway.`);
+        await this.statusOverlay.show(page, 'COMPLETE').catch(() => { });
+        await page.waitForTimeout(1000).catch(() => { });
+
+        return {
+          locator: secondAttempt.locator,
+          oldLocator: originalLocator,
+          newLocator: secondAttempt.healResult.healedLocator,
+          didHeal: true,
+          triggeredAI: secondAttempt.healResult.triggeredAI,
+          confidence: secondAttempt.healResult.confidence,
+          reason: secondAttempt.healResult.reason + ' (validation failed on all tiers, proceeding anyway)',
+          candidateId: secondAttempt.healResult.candidateId,
+          topCandidates: secondAttempt.topCandidates
+        };
+      }
+
+      throw secondAttemptErr || firstAttemptErr || new Error(`All recovery tiers failed for "${originalElement.ObjectName}"`);
     } catch (err) {
       try {
         await this.statusOverlay.show(page, 'FAILED');

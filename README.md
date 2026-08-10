@@ -105,37 +105,91 @@ VLLM_API_KEY=dummy-key
 
 ## Usage
 
-### Install Dependencies
+### 1. Installation & Environment Setup
+
+Clone the repository and install all required Node.js dependencies:
 ```bash
 npm install
 ```
+*(Note: `postinstall` automatically runs `npx playwright install chromium` to fetch necessary Playwright browser binaries).*
 
-### Run Testcase
-Execute the standalone test runner on the target application:
+If browser binaries are missing, run manually:
+```bash
+npx playwright install chromium
+```
+
+Configure your environment variables by creating a `.env` file in the project root:
+```env
+# Choose active AI provider: 'gemini', 'openai', or 'vllm'
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+---
+
+### 2. Building the Engine
+
+**Standard Build**  
+Bundles `runner.ts` and core engines into `.workspace/dist/runner.js` using `esbuild` and applies obfuscation:
+```bash
+npm run build
+```
+
+**Production Release Build**  
+Runs the standard build and packages standalone release artifacts under the `.workspace/release/` directory:
+```bash
+npm run build:release
+```
+
+---
+
+### 3. Running the Self-Healing Engine
+
+**Development Mode (Direct TypeScript Execution)**  
+Executes `runner.ts` directly with `ts-node` without needing to build first:
+```bash
+npm run start:dev
+```
+
+**Production Mode (Bundled Runner Execution)**  
+Executes the pre-compiled production bundle from `.workspace/dist/runner.js`:
 ```bash
 npm start
 ```
 
-### Integration in External Test Suites (Plug-and-Play Library)
-You can import the core element recovery pipeline directly into your own Playwright frameworks:
+---
+
+### 4. Viewing Execution & Healing Reports
+
+After running testcases, **reLOCATE.AI** automatically compiles a detailed interactive HTML report and diagnostic logs:
+
+*   **Interactive HTML Execution Report**: Open `.workspace/reports/Execution-Report-YYYY-MM-DD_HH-MM-SS/report.html` in any browser to inspect candidate scores, AI confidence levels, visual highlight bounding boxes, and healing metrics.
+*   **Diagnostic Logs**: Detailed runtime step-by-step reasoning logs are saved under `.workspace/logs/`.
+
+---
+
+### 5. Integration in External Test Suites (Plug-and-Play Library)
+
+You can import the core element recovery pipeline directly into your existing TypeScript / JavaScript Playwright test frameworks:
 
 ```typescript
-import { RelocateEngine } from 'relocate-ai';
+import { Relocator } from 'relocate-ai';
 
-// Initialize the engine
-const relocate = new RelocateEngine({ aiProvider: 'gemini' });
+// 1. Initialize the relocator instance (reads .env automatically)
+const relocator = new Relocator({ aiProvider: 'gemini' });
 
-// Relocate element dynamically (checks selector first, recovers if failed)
-const element = await relocate.relocateElement(page, {
+// 2. Perform self-healing element relocation
+// If the primary locator (#mutated-login-btn) fails, reLOCATE heals it dynamically
+const healedLocator = await relocator.relocateElement(page, {
   LocCssSelector: '#mutated-login-btn',
   ObjectName: 'Login Button',
   Action: 'Click',
   LocTagName: 'BUTTON',
-  accessibleName: 'Login'
+  labelText: 'Sign In'
 });
 
-// Execute step actions on the returned Playwright locator
-await element.click();
+// 3. Execute actions using standard Playwright methods
+await healedLocator.click();
 ```
 
 For a comprehensive guide, parameters, and design details, check out the [RelocateEngine Integration Guide](file:///c:/Users/shaam/Desktop/reLOCATE.AI/docs/getting-started.md).

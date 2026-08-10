@@ -6,7 +6,7 @@ node_modules/
 .env.local
 .env.*.local
 
-# Local Workspace Directory (contains dist, out, bin_cache, logs, reports)
+# Local Workspace Directory (contains dist, out, release, bin_cache, logs, reports)
 .workspace/
 
 # Diagnostic logs

@@ -17,9 +17,10 @@ reLOCATE.AI/
 │   └── AIHealing.json            # Playwright automation recording & steps data
 ├── logs/                         # Dynamic timestamped execution logs (relocate-debug.log)
 ├── docs/
-│   ├── working-details.md        # Technical architecture documentation (this file)
-│   ├── ai-payload-details.md     # In-depth AI payload and JSON schema details
-│   └── project-architecture.md   # Visual decision flowchart and architecture guide
+│   ├── technical-mechanics.md    # Technical architecture & engine internals (this file)
+│   ├── ai-payload-schemas.md     # In-depth AI payload and JSON schema details
+│   ├── architecture.md           # Visual decision flowchart and architecture guide
+│   └── deployment-guide.md       # Build packaging, obfuscation, and release distribution
 └── src/
     ├── llm-connectors/
     │   ├── openai.service.ts     # OpenAI GPT-4o integration & askMcpAI
@@ -126,7 +127,7 @@ const needsAI = bestMatch.score < 90 || (runnerUp && (bestMatch.score - runnerUp
 ## 4. AI Reasoning Layer & API Clients
 Location: [`src/llm-connectors/openai.service.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/llm-connectors/openai.service.ts), [`src/llm-connectors/gemini.service.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/llm-connectors/gemini.service.ts)
 
-For a detailed breakdown of the request properties (the clean Original Element and Candidate Pool model fields) and concrete examples, refer to the [AI Payload Details Guide](file:///c:/Users/shaam/Desktop/AIElementIdentification/docs/ai-payload-details.md).
+For a detailed breakdown of the request properties (the clean Original Element and Candidate Pool model fields) and concrete examples, refer to the [AI Payload Schemas Guide](docs/ai-payload-schemas.md).
 
 ### A. Strict Response Schema
 Both providers invoke their structured output configurations to force the model response format to match:

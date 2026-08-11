@@ -284,9 +284,10 @@ export async function getElementWithRecovery(
 Deep dive into the underlying design, mathematical models, and payload specifications:
 
 - **[Getting Started & SDK Guide](docs/getting-started.md)** — Integration walkthrough and parameter reference.
-- **[Architecture & Decision Flow](docs/project-architecture.md)** — Detailed flowcharts, candidate pruning, and safety gates.
-- **[Technical Working & Mechanics](docs/working-details.md)** — Candidate finder, shadow-DOM recursion, and locator resolution.
-- **[AI Payload & JSON Schema](docs/ai-payload-details.md)** — Request structures, prompt engineering, and response contracts.
+- **[Architecture & Decision Flow](docs/architecture.md)** — Detailed flowcharts, candidate pruning, and safety gates.
+- **[Technical Mechanics & Engine Internals](docs/technical-mechanics.md)** — Candidate finder, shadow-DOM recursion, and locator resolution.
+- **[AI Payload & JSON Schemas](docs/ai-payload-schemas.md)** — Request structures, prompt engineering, and response contracts.
+- **[Deployment & Release Guide](docs/deployment-guide.md)** — Build packaging, obfuscation, and release distribution.
 
 ---
 

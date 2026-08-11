@@ -93,12 +93,12 @@ flowchart TD
     EvaluateCandidates --> LoopSafety{Candidate #1, #2, or #3 passes Safety Gates?}:::condition
     
     LoopSafety -->|Yes| TargetStamp
-    LoopSafety -->|No / Tier 2 Failed| Tier3MCP["Escalate to Tier 3: McpRecoveryAgent (MCP Fallback)"]:::mcp
+    LoopSafety -->|No / Stage 1 Failed| Stage2MCP["Escalate to Stage 2: McpRecoveryAgent"]:::mcp
     
-    Tier3MCP --> HideOverlay["Hide StatusOverlay via aria-hidden='true'"]:::mcp
-    HideOverlay --> AxSnapshot["Capture locator('body').ariaSnapshot() (YAML)"]:::mcp
-    AxSnapshot --> McpAI["Invoke askMcpAI() Payload (<500 tokens)"]:::mcp
-    McpAI --> McpCheck{Did MCP AI heal locator?}:::mcp
+    Stage2MCP --> HideOverlay["Suppress StatusOverlay"]:::mcp
+    HideOverlay --> AxSnapshot["Capture ARIA Snapshot (YAML)"]:::mcp
+    AxSnapshot --> McpAI["Invoke askMcpAI Payload (<500 tokens)"]:::mcp
+    McpAI --> McpCheck{Did Stage 2 heal locator?}:::mcp
     
     McpCheck -->|Yes| TargetStamp
     McpCheck -->|No| Abort[Abort Self-Healing & Throw Error]:::gate

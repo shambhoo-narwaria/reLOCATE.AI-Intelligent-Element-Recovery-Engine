@@ -235,35 +235,46 @@ Detailed step-by-step reasoning logs are recorded in `.workspace/logs/relocate-d
 
 ## Programmatic SDK Integration
 
-You can integrate **reLOCATE.AI** directly into your custom Playwright test suites:
+**reLOCATE.AI** is designed as a **Pure Standalone Recovery Engine SDK**. It does not alter your existing runner logic or perform classical trials on its own. 
+
+When your existing automation engine encounters a locator failure, it calls `relocator.relocateElement(page, step)` to recover and return the healed Playwright `Locator` object. Your runner then executes the action (`.click()`, `.fill()`) on the returned `Locator`.
 
 ```typescript
-import { test, expect } from '@playwright/test';
-import { RelocateEngine } from 'relocate-ai';
+import { Page, Locator } from 'playwright';
+import { Relocator } from 'relocate-ai';
 
-test.describe('Self-Healing Client Automation', () => {
-  let relocate: RelocateEngine;
+// 1. Initialize the recovery engine once
+const relocator = new Relocator({ aiProvider: 'gemini' });
 
-  test.beforeAll(async () => {
-    relocate = new RelocateEngine({ aiProvider: 'gemini' });
-  });
+/**
+ * Example Hook inside an existing runner / Page Object class
+ */
+export async function getElementWithRecovery(
+  page: Page,
+  step: { selector: string; objectName?: string; tagName?: string; labelText?: string; action: string }
+): Promise<Locator> {
+  let locator: Locator;
 
-  test('Perform action with element recovery', async ({ page }) => {
-    await page.goto('https://example.com');
+  try {
+    // 1. Existing runner tries its classical selector first
+    locator = page.locator(step.selector).first();
+    await locator.waitFor({ state: 'visible', timeout: 2000 });
+  } catch (error) {
+    // 2. All classical attempts failed -> Call reLOCATE.AI Recovery Engine
+    console.warn(`[Runner] Selector "${step.selector}" failed. Invoking reLOCATE.AI Recovery Engine...`);
 
-    // Relocate element dynamically (heals locator automatically if selector fails)
-    const loginButton = await relocate.relocateElement(page, {
-      LocCssSelector: 'button#mutated-login-btn',
-      ObjectName: 'Login Button',
-      Action: 'Click',
-      LocTagName: 'BUTTON',
-      labelText: 'Sign In'
+    locator = await relocator.relocateElement(page, {
+      LocCssSelector: step.selector,
+      ObjectName: step.objectName || step.selector,
+      LocTagName: step.tagName || 'BUTTON',
+      labelText: step.labelText,
+      Action: step.action // 'Click', 'Enter', 'Select'
     });
+  }
 
-    await loginButton.click();
-    await expect(page.locator('.dashboard')).toBeVisible();
-  });
-});
+  // 3. Return resolved Locator back to runner to execute action (.click / .fill)
+  return locator;
+}
 ```
 
 ---

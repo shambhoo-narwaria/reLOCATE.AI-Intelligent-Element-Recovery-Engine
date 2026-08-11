@@ -6,7 +6,13 @@ This guide documents how to integrate the **reLOCATE.AI** runtime element recove
 
 ## Overview
 
-Unlike standalone test runners, the **`RelocateEngine`** is designed to be imported directly as an SDK inside your test files. It is typically invoked inside a `try-catch` block (on locator failure) or to wrap critical selector statements: when called, it immediately executes the element recovery pipeline. It crawls the DOM, ranks candidate elements, uses visual similarity scoring, and falls back to LLMs to dynamically locate the correct element of interest at runtime.
+The **`Relocator`** / **`RelocateEngine`** SDK is designed to be imported directly into your existing test runners, automation frameworks, or Page Object models.
+
+It acts as a **Pure Standalone Element Recovery Engine**:
+1. Your existing runner executes its own classical locators (`page.locator(selector)`).
+2. ONLY IF all locators fail in your runner, your catch block calls `relocator.relocateElement(page, step)`.
+3. `relocateElement()` executes the recovery pipeline (11-Rule Scoring Engine + LLM Candidate Reasoning + Tier 3 MCP Fallback) and returns the healed Playwright `Locator` object (`Promise<Locator>`).
+4. Your runner receives the healed `Locator` and executes the action (`.click()`, `.fill()`, etc.) itself.
 
 ---
 
@@ -35,40 +41,50 @@ Optionally customize recovery behavior in `config.json`:
 
 ## Integration Example
 
-Here is a standard Playwright test showing how to initialize `RelocateEngine` and run locator queries through the recovery logic:
+Here is an example showing how an existing runner or page object hooks `Relocator` inside its error catch block:
 
 ```typescript
 import { test, expect } from '@playwright/test';
-import { RelocateEngine } from 'relocate-ai';
+import { Relocator } from 'relocate-ai';
 
-test.describe('Smart Client Login Test', () => {
-  let relocate: RelocateEngine;
+test.describe('Smart Client Automation', () => {
+  let relocator: Relocator;
 
   test.beforeAll(async () => {
-    // 1. Initialize the RelocateEngine (loads env paths & boots up AI scoring engines)
-    relocate = new RelocateEngine({
+    // 1. Initialize the Relocator SDK once
+    relocator = new Relocator({
       aiProvider: 'gemini', // 'gemini' | 'openai' | 'vllm' | 'openrouter'
     });
   });
 
-  test('Execute action with element recovery', async ({ page }) => {
+  test('Execute action with recovery fallback', async ({ page }) => {
     await page.goto('https://stg.mayer.hdp-cicd.zeiss.com');
 
-    // 2. Relocate element dynamically (checks selector first, recovers if failed)
-    const loginButton = await relocate.relocateElement(page, {
-      LocCssSelector: 'button#login-btn-mutated-id-123',
-      ObjectName: 'Login Button',
-      Action: 'Click',
-      LocTagName: 'BUTTON',
-      accessibleName: 'Login',
-      labelText: 'Login to Mayer Portal',
-      LocClassName: 'zui-btn zui-btn-primary'
-    });
+    let loginButton;
+    const classicalSelector = 'button#login-btn-mutated-id-123';
 
-    // 3. Execute the click action on the resolved Playwright Locator
+    try {
+      // 2. Runner tries classical locator first
+      loginButton = page.locator(classicalSelector).first();
+      await loginButton.waitFor({ state: 'visible', timeout: 2000 });
+    } catch (err) {
+      // 3. Classical locator failed -> Call reLOCATE.AI Recovery Engine
+      console.warn(`[Runner] Selector "${classicalSelector}" failed. Calling reLOCATE.AI Recovery Engine...`);
+
+      loginButton = await relocator.relocateElement(page, {
+        LocCssSelector: classicalSelector,
+        ObjectName: 'Login Button',
+        Action: 'Click',
+        LocTagName: 'BUTTON',
+        labelText: 'Login to Mayer Portal',
+        LocClassName: 'zui-btn zui-btn-primary'
+      });
+    }
+
+    // 4. Runner executes click action on the returned Playwright Locator
     await loginButton.click();
 
-    // 4. Verify outcome
+    // 5. Verify outcome
     await expect(page.locator('.dashboard')).toBeVisible();
   });
 });

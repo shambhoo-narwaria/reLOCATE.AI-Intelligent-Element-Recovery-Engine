@@ -6,6 +6,11 @@
 
 ## Key Features
 
+*   **Tier 3 Pure MCP Recovery Agent**
+    *   Executes as an ultra-lightweight, single-run fallback (`McpRecoveryAgent`) when Tier 2 heuristic and candidate AI cycles fail pre-action validation.
+    *   Consumes native `locator('body').ariaSnapshot()` YAML accessibility trees for maximum token efficiency (<500 tokens total vs 30,000+ raw DOM tokens).
+    *   Temporarily suppresses system UI overlays (`__ai-healing-status-overlay__`) via `aria-hidden` prior to snapshot capture to prevent accessibility tree pollution.
+    *   Selective visual fallback: automatically attaches a compressed JPEG base64 screenshot if the accessibility tree is empty or insufficient.
 *   **Multi-Dimensional Fingerprinting & AI Recovery**
     *   Models target elements using an advanced **8-dimensional Identity Model** (Semantics, Functional, Behavioral, Ancestry, Spatial, Geometry, Visual Contour, and Grid coordinates) instead of fragile CSS selectors.
     *   Integrates a hybrid scoring engine with a structured LLM reasoning layer.
@@ -38,7 +43,7 @@
 
 ## System Architecture
 
-For a simple-to-understand walkthrough of the decision engine flows, visual diagrams, and scoring pipelines, check out the [Architecture & Decision Flow Guide](file:///c:/Users/shaam/Desktop/AIElementIdentification/docs/project-architecture.md).
+For a simple-to-understand walkthrough of the decision engine flows, visual diagrams, and scoring pipelines, check out the [Architecture & Decision Flow Guide](file:///c:/Users/shaam/Desktop/reLOCATE.AI/docs/project-architecture.md).
 
 ```mermaid
 graph TD
@@ -46,20 +51,26 @@ graph TD
     classDef runner fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
     classDef scoring fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#f8fafc;
     classDef ai fill:#0b2545,stroke:#00c9a7,stroke-width:2px,color:#8efcd4;
+    classDef mcp fill:#311b92,stroke:#8b5cf6,stroke-width:2px,color:#f8fafc;
     classDef action fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5;
 
-    A[Runner]:::runner -->|1. Try Selector| B(DOM Element Found?):::runner
+    A[Runner]:::runner -->|1. Try Primary Selector| B(DOM Element Found?):::runner
     B -->|Yes| C[Execute Action]:::action
-    B -->|No| D[Stabilize Page & Scrape Candidates]:::runner
-    D --> E[Construct Element Identity Fingerprints]:::runner
-    E --> F[Align 11 Scoring Rules & Weightings]:::scoring
-    F --> G{Needs AI Fallback?}:::scoring
-    G -->|No| H[Apply Best Heuristic Selector]:::scoring
-    G -->|Yes| I["Trigger AI Service: OpenAI, Gemini, or VLLM"]:::ai
-    I --> J[Select Top Candidate]:::ai
-    H --> K[Resolve CSS Selector or Healed ID Fallback]:::action
-    J --> K
-    K -->|Visual Highlight| L[Perform Action & Log Output]:::action
+    B -->|No| D[Tier 2: Stabilize Page & Scrape Candidates]:::runner
+    D --> E[Construct Identity Fingerprints & Align 11 Rules]:::scoring
+    E --> F{Needs AI Reasoning?}:::scoring
+    F -->|No: High Margin| G[Apply Best Heuristic Selector]:::scoring
+    F -->|Yes: Low Margin| H["Trigger AI Service: OpenAI, Gemini, or VLLM"]:::ai
+    G --> I{Pre-Action Validation Passed?}:::scoring
+    H --> I
+    I -->|Yes| J[Resolve CSS Selector or Healed ID]:::action
+    I -->|No: Validation Failed| K["Tier 3: McpRecoveryAgent (MCP Fallback)"]:::mcp
+    K --> L["Capture Token-Efficient ARIA Snapshot (YAML)"]:::mcp
+    L --> M["Invoke AI MCP Reasoning (askMcpAI)"]:::mcp
+    M --> N{MCP Recovery Success?}:::mcp
+    N -->|Yes| J
+    N -->|No| O[Throw Healing Error]:::runner
+    J -->|Visual Highlight| P[Perform Action & Record Report Metrics]:::action
 ```
 
 1.  **Test Runner (`src/runner/test-runner.ts`)**: Loads JSON testcases, executes standard operations, draws overlay borders, validates healed actionability, and maintains run metrics.
@@ -76,19 +87,21 @@ graph TD
     *   `VisualSimilarityRule` (Weight 20 — visual similarity crop matching)
     *   `CssSelectorRule` (Weight 10 — CSS selector path similarity matching)
     *   `HorizontalProximityRule` (Weight 5 — horizontal proximity tiebreaker matching)
-4.  **LLM Providers (`src/llm-connectors/`)**: Formats payloads and requests LLMs using JSON schemas to guarantee return types (`candidateId`, `confidence`, `reason`).
+4.  **LLM Providers (`src/llm-connectors/`)**: Formats payloads and requests LLMs using JSON schemas to guarantee return types (`candidateId`, `confidence`, `reason`). Implements `askMcpAI()` for pure MCP recovery.
+5.  **MCP Recovery Agent (`src/mcp/mcp-recovery-agent.ts`)**: Provides token-efficient Tier 3 MCP accessibility tree recovery (`locator('body').ariaSnapshot()`) as a single topmost fallback.
 
 ---
 
 ## Configuration
 
+### Environment Variables (`.env`)
 Create a `.env` file in the project root:
 
 ```env
 OPENAI_API_KEY=sk-proj-YourOpenAiKeyHere...
 GEMINI_API_KEY=AIzaSyYourGeminiKeyHere...
 
-# Choose the active AI service: 'openai', 'gemini', or 'vllm'
+# Choose the active AI service: 'openai', 'gemini', 'vllm', or 'openrouter'
 AI_PROVIDER=gemini
 
 # Optionals / Model Customization
@@ -100,6 +113,18 @@ VLLM_BASE_URL=http://<YOUR_EC2_IP>:8000/v1
 VLLM_MODEL_NAME=Qwen/Qwen2.5-14B-Instruct
 VLLM_API_KEY=dummy-key
 ```
+
+### Engine Configuration (`config.json`)
+Manage engine behavior and debugging flags via `config.json` in the root directory:
+
+```json
+{
+  "ENABLE_MCP_FALLBACK": true,
+  "FORCE_MCP_STEP": ""
+}
+```
+*   **`ENABLE_MCP_FALLBACK`** (`boolean`): Enables or disables Tier 3 Pure MCP recovery globally.
+*   **`FORCE_MCP_STEP`** (`string` | `number`): Debug option to force Tier 3 MCP recovery directly for a specific step (e.g. `"1"`, `"2"`, or `"all"`), bypassing Tier 2 heuristic cycles.
 
 ---
 
@@ -163,8 +188,11 @@ npm start
 
 After running testcases, **reLOCATE.AI** automatically compiles a detailed interactive HTML report and diagnostic logs:
 
-*   **Interactive HTML Execution Report**: Open `.workspace/reports/Execution-Report-YYYY-MM-DD_HH-MM-SS/report.html` in any browser to inspect candidate scores, AI confidence levels, visual highlight bounding boxes, and healing metrics.
-*   **Diagnostic Logs**: Detailed runtime step-by-step reasoning logs are saved under `.workspace/logs/`.
+*   **Interactive HTML Execution Report**: Open `.workspace/reports/Execution-Report-YYYY-MM-DD_HH-MM-SS/report.html` in any browser to inspect candidate scores, AI confidence levels, visual highlight bounding boxes, and healing metrics. Distinct badges highlight recovery tiers:
+    *   `✨ Healed by AI (MCP)` (Purple Gradient): Resolved via Tier 3 Pure MCP accessibility snapshots.
+    *   `✨ Healed by AI` (Blue/Purple Gradient): Resolved via Tier 2 LLM Candidate Reasoning.
+    *   `Healed` (Green Pill): Resolved via Tier 2 local Rule-Based Heuristics.
+*   **Diagnostic Logs**: Detailed runtime step-by-step reasoning logs are saved under `.workspace/logs/relocate-debug.log`.
 
 ---
 
@@ -198,8 +226,9 @@ For a comprehensive guide, parameters, and design details, check out the [Reloca
 
 ## Diagnostic Logs
 
-A detailed log is generated under `.workspace/logs/healing-debug-YYYY-MM-DDTHH-MM-SS.log` for every session. It documents:
+A detailed log is generated under `.workspace/logs/healing-debug-YYYY-MM-DDTHH-MM-SS.log` (and mirrored to `relocate-debug.log`) for every session. It documents:
 *   Initial locator failures and loading delays.
-*   The system prompt and formatted candidates list payload sent to the AI.
-*   Raw AI output and final resolved locator (CSS selector with Healed ID fallback).
+*   Tier 2 heuristic scores, system prompts, candidate payloads, and LLM reasoning.
+*   Tier 3 MCP requests (`logMcpRequest`) including multi-line accessibility tree YAML snapshots and MCP AI responses (`logMcpResponse`).
+*   Resolved CSS/XPath or Playwright native locators (e.g. `getByRole`, `getByText`, or `[data-ai-healed-id]`).
 *   Execution outcome and performance metrics (Confidence levels, execution count, healing accuracy).

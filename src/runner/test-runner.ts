@@ -301,15 +301,16 @@ export class TestRunner {
     process.off('SIGINT', sigintListener);
     process.off('SIGTERM', sigtermListener);
 
-    if (this.outcomes.length > 0) {
+    try {
+      HtmlReportGeneratorService.generate(this.outcomes, runReportDir, projectName);
+    } catch (repErr: any) {
+      console.error(`[TestRunner] Failed to generate HTML report:`, repErr);
+    } finally {
+      console.log(`[TestRunner] Closing browser...`);
       try {
-        HtmlReportGeneratorService.generate(this.outcomes, runReportDir, projectName);
-      } catch (repErr: any) {
-        console.error(`[TestRunner] Failed to generate HTML report:`, repErr);
-      }
+        await browser?.close();
+      } catch {}
     }
-    console.log(`[TestRunner] Closing browser...`);
-    await browser.close();
   }
 
   /**
@@ -318,15 +319,13 @@ export class TestRunner {
   private setupTerminationHandler(browser: any, runReportDir: string, projectName: string) {
     const handleTermination = async (signal: string) => {
       console.warn(`\n[TestRunner] Received ${signal}. Executing cleanup and generating final report...`);
-      if (this.outcomes.length > 0) {
-        try {
-          HtmlReportGeneratorService.generate(this.outcomes, runReportDir, projectName);
-        } catch (repErr: any) {
-          console.error(`[TestRunner] Failed to generate HTML report:`, repErr);
-        }
+      try {
+        HtmlReportGeneratorService.generate(this.outcomes, runReportDir, projectName);
+      } catch (repErr: any) {
+        console.error(`[TestRunner] Failed to generate HTML report:`, repErr);
       }
       try {
-        await browser.close();
+        await browser?.close();
       } catch { }
       process.exit(1);
     };

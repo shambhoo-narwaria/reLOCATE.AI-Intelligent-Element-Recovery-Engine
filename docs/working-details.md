@@ -10,44 +10,45 @@ This document provides a deep dive into the inner workings, algorithms, and modu
 reLOCATE.AI/
 ├── runner.ts                     # Application entry point & service bootstrap
 ├── package.json                  # Dependencies & start scripts
+├── config.json                   # Engine fallback & debug config (ENABLE_MCP_FALLBACK, FORCE_MCP_STEP)
 ├── .env                          # Local environment settings (keys & active AI config)
 ├── .gitignore                    # Git file exclusions
 ├── Testcase/
 │   └── AIHealing.json            # Playwright automation recording & steps data
-├── logs/                         # Dynamic timestamped execution logs
+├── logs/                         # Dynamic timestamped execution logs (relocate-debug.log)
 ├── docs/
 │   ├── working-details.md        # Technical architecture documentation (this file)
 │   ├── ai-payload-details.md     # In-depth AI payload and JSON schema details
 │   └── project-architecture.md   # Visual decision flowchart and architecture guide
 └── src/
     ├── llm-connectors/
-    │   ├── openai.service.ts     # OpenAI GPT-4o integration
-    │   └── gemini.service.ts     # Google Gemini API REST integration
+    │   ├── openai.service.ts     # OpenAI GPT-4o integration & askMcpAI
+    │   ├── gemini.service.ts     # Google Gemini API REST integration & askMcpAI
+    │   ├── openrouter.service.ts # OpenRouter LLM integration & askMcpAI
+    │   └── vllm.service.ts       # Self-hosted vLLM / Qwen integration & askMcpAI
+    ├── mcp/
+    │   └── mcp-recovery-agent.ts # Tier 3 Pure MCP accessibility recovery
     ├── interfaces/               # Strong typing & OOP contracts
     │   ├── ai-provider.interface.ts
     │   ├── candidate.interface.ts
+    │   ├── mcp-recovery.interface.ts
     │   ├── healing-result.interface.ts
     │   └── original-element.interface.ts
-    ├── recovery-engine/
-    │   └── recovery.engine.ts     # Decision orchestrator (Rules vs AI layer)
+    ├── relocate-engine/
+    │   ├── relocate.engine.ts    # Scoring orchestrator & rule execution
+    │   └── relocate-element.ts   # Multi-tiered locator resolution (Tier 1/2/3 orchestrator)
     ├── runner/
     │   ├── candidate-finder.ts   # Shadow-DOM & slot-aware candidate scraper
     │   └── test-runner.ts        # Playwright loop, highlights, & state machine
     ├── scoring/
     │   ├── scoring.engine.ts     # Candidate scoring pipeline
     │   └── rules/                # Metric rules scoring components
-    │       ├── similarity.helper.ts
-    │       ├── object-name.rule.ts
-    │       ├── label-text.rule.ts
-    │       ├── role.rule.ts
-    │       ├── nearby-text.rule.ts
-    │       ├── parent-context.rule.ts
-    │       └── dom-structure.rule.ts
     ├── validation/
     │   ├── safety.validator.ts    # Pre-action safety validation gates & original locator semantic check
     │   └── element.validator.ts   # Actionability validation guard
     └── utils/
-        └── debug-logger.ts       # Structured file-mirror debugger
+        ├── debug-logger.ts       # Structured file-mirror debugger (logMcpRequest/logMcpResponse)
+        └── page-stabilizer.ts    # DOM mutation & network idle stabilizer
 ```
 
 ---
@@ -215,4 +216,48 @@ To maintain maximum performance and prevent browser memory bloat (Chrome Out of 
   1. In `test-runner.ts`, if the target is `"SLOT"`, the tag-name hard constraint is bypassed during candidate scraping and filtering.
   2. In `recovery.engine.ts` (Step 2a), the system filters the pool using the original element's `shadowHostTags` (extracted from the shadow DOM host chain).
   3. This ensures that only custom wrapper elements belonging to the correct component tree (e.g. `ZUI-SELECT-BUTTON-V3-17`) are evaluated, retaining high performance while successfully healing dynamic slot-based controls.
+
+---
+
+## 7. Tier 3 Pure MCP Recovery Engine (`McpRecoveryAgent`)
+Location: [`src/mcp/mcp-recovery-agent.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/mcp/mcp-recovery-agent.ts)
+
+When both Tier 2 heuristic cycles fail pre-action validation, `RelocateElement` escalates to **Tier 3 Pure MCP Fallback**. This recovery layer acts as a single, topmost safety fallback.
+
+### Execution Workflow
+1. **Page Stabilization**: Invokes `waitForPageSettle(page, 15000)` to ensure network requests and DOM mutations have stopped.
+2. **Status Overlay Suppression**: Temporarily sets `aria-hidden="true"` on `__ai-healing-status-overlay__` elements to prevent internal engine overlay text from polluting the accessibility tree.
+3. **Accessibility Snapshot**: Calls Playwright's native `page.locator('body').ariaSnapshot()`, which produces a clean, ultra-compact YAML document representing the interactive accessibility tree.
+4. **Selective Screenshot Fallback**: If `ariaSnapshot()` returns no interactive nodes, captures a compressed JPEG base64 screenshot (`quality: 60`).
+5. **Compact Payload Assembly**: Assembles `Tier3CompactMcpInputPayload` (<500 tokens total):
+   ```json
+   {
+     "targetMetadata": { "objectName": "Sign In", "locTagName": "BUTTON", "accessibleName": "Sign In" },
+     "failureContext": { "reason": "Both Tier 2 heuristic cycles failed pre-action validation" },
+     "accessibilityTree": "button \"Sign In\" [ref=2]",
+     "screenshotBase64": "..."
+   }
+   ```
+6. **LLM Provider Execution (`askMcpAI`)**: Dispatches the payload to the active AI provider (`OpenAIService`, `GeminiService`, `OpenRouterService`, or `VLLMService`). The model returns a structured JSON payload:
+   ```json
+   {
+     "healedSelector": "button:has-text(\"Sign In\")",
+     "confidence": 0.95,
+     "reason": "Matched 'Sign In' button node in YAML accessibility snapshot"
+   }
+   ```
+7. **Overlay Restoration & Resolution**: Restores `aria-hidden` visibility on the status overlay and returns the healed Playwright `Locator`.
+
+---
+
+## 8. Flexible Locator Resolution (`resolvePlaywrightLocator`)
+Location: [`src/relocate-engine/relocate-element.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/relocate-engine/relocate-element.ts)
+
+AI models and MCP recovery agents frequently generate locators using native Playwright locator expressions (e.g. `getByRole('button', { name: 'Sign in' })` or `getByText('Submit')`). Standard `page.locator()` throws syntax errors when passed these code expressions directly.
+
+`resolvePlaywrightLocator` handles selector resolution dynamically:
+* Strips leading `page.` or `await page.` prefixes.
+* Checks if the selector uses a Playwright builder pattern (`/^(?:getBy[A-Za-z]+|locator)\s*\(/`).
+* Evaluates the locator safely inside a function context (`new Function('page', 'return page....')`).
+* Gracefully falls back to standard CSS/XPath locator resolution (`page.locator(trimmed)`) if string evaluation fails.
 

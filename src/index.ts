@@ -86,7 +86,7 @@ export class Relocator {
     const candidateFinder = new CandidateFinder();
     const elementValidator = new ElementValidator();
     const statusOverlay = new StatusOverlay();
-    const mcpRecoveryAgent = new McpRecoveryAgent();
+    const mcpRecoveryAgent = new McpRecoveryAgent(aiProvider);
 
     this.relocateElementPipeline = new RelocateElement(
       relocateEngine,

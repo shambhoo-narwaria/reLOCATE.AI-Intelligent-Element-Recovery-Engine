@@ -19,7 +19,10 @@ export function prepareAIContext(original: OriginalElement, candidates: Candidat
         .filter(tag => tag.includes('-'))  // only custom elements
     );
 
-  const resolvedName = (original.LocText || original.LocTitle || original.OwnInnerText || '').trim();
+  const stepNum = original.index !== undefined ? original.index + 1 : 0;
+  const stepPrefix = stepNum > 0 ? `Step ${stepNum}` : '';
+  const textName = (original.ObjectName || original.LocText || original.LocTitle || original.OwnInnerText || '').trim();
+  const resolvedName = stepPrefix ? (textName ? `${stepPrefix} (${textName})` : stepPrefix) : (textName || 'unknown');
 
   const cleanedOriginal = cleanObject({
     objectName:          resolvedName,

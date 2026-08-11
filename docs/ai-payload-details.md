@@ -175,3 +175,64 @@ The AI provider enforces structured JSON output. The LLM response must match the
   "required": ["candidateId", "confidence", "reason"]
 }
 ```
+
+---
+
+## 6. Tier 3 MCP Request & Response Payload Details
+
+In addition to Tier 2 Candidate Pool payloads, reLOCATE.AI supports ultra-compact **Tier 3 MCP accessibility tree payloads** via `McpRecoveryAgent`.
+
+### A. Input Payload (`Tier3CompactMcpInputPayload`)
+
+| Field Name | Type | Description / Usecase |
+| :--- | :---: | :--- |
+| `targetMetadata.objectName` | `string` | Human-readable descriptor of the target element. |
+| `targetMetadata.locCssSelector` | `string` | Original recorded CSS selector path. |
+| `targetMetadata.locTagName` | `string` | Original recorded HTML tag name. |
+| `targetMetadata.accessibleName` | `string` | Original accessible name / text label. |
+| `targetMetadata.labelText` | `string` | Original associated label text. |
+| `failureContext.reason` | `string` | Reason why Tier 1 and Tier 2 locators failed pre-action validation. |
+| `accessibilityTree` | `string` | Multi-line YAML accessibility snapshot generated natively via `locator('body').ariaSnapshot()`. |
+| `screenshotBase64` | `string` *(Optional)* | Selective compressed JPEG base64 screenshot (`quality: 60`), attached only when accessibility tree is empty/insufficient. |
+
+### B. Example MCP User Payload
+
+```json
+{
+  "targetMetadata": {
+    "objectName": "Username",
+    "locCssSelector": "#signInName",
+    "locTagName": "INPUT",
+    "accessibleName": "Username",
+    "labelText": "Username"
+  },
+  "failureContext": {
+    "reason": "Both Tier 2 heuristic cycles failed pre-action validation"
+  },
+  "accessibilityTree": "- textbox \"Username\" [ref=1]\n- passwordbox \"Password\" [ref=2]\n- button \"Sign in\" [ref=3]"
+}
+```
+
+### C. MCP System Prompt Context
+
+```text
+You are an MCP recovery agent.
+Given a failed UI test step object metadata and the accessibility tree (ariaSnapshot YAML format), output the BEST robust CSS selector or locator expression (e.g. #signInName, input[name="username"], getByRole('textbox', { name: 'Username' })) to recover the element.
+
+Return ONLY valid JSON matching this schema:
+{
+  "healedSelector": "string",
+  "confidence": number,
+  "reason": "string"
+}
+```
+
+### D. MCP Output Response Schema
+
+```json
+{
+  "healedSelector": "#signInName",
+  "confidence": 0.95,
+  "reason": "Matched textbox 'Username' ref=1 in Playwright ARIA accessibility snapshot"
+}
+```

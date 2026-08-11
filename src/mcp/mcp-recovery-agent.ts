@@ -1,34 +1,67 @@
 import { Page } from 'playwright';
 import { OriginalElement } from '../interfaces/original-element.interface';
 import { Tier3CompactMcpInputPayload, Tier3McpOutputResult } from '../interfaces/mcp-recovery.interface';
+import { AIProvider } from '../interfaces/ai-provider.interface';
+import { logger } from '../utils/debug-logger';
+import { waitForPageSettle } from '../utils/page-stabilizer';
 
 export class McpRecoveryAgent {
+  constructor(private aiProvider?: AIProvider) {}
+
   /**
-   * Performs Tier 3 recovery using token-efficient Playwright MCP accessibility snapshots.
-   * Consumes ~200-400 tokens per call instead of 30,000+ raw DOM tokens.
+   * Performs Tier 3 recovery using pure token-efficient MCP accessibility snapshots.
+   * Uses locator.ariaSnapshot() which returns YAML natively in MCP format.
    */
   async recoverElement(
     page: Page,
     originalElement: OriginalElement,
-    failureReason: string,
-    topCandidates: any[] = []
+    failureReason: string
   ): Promise<Tier3McpOutputResult> {
-    console.log(`[McpRecoveryAgent] Initiating Token-Efficient Playwright MCP Fallback for "${originalElement.ObjectName || 'Target Element'}"...`);
+    const stepNum = originalElement.index !== undefined ? originalElement.index + 1 : 0;
+    const stepName = stepNum > 0 ? `Step ${stepNum} (${originalElement.ObjectName || 'Target Element'})` : (originalElement.ObjectName || 'Target Element');
+    logger.warn(`[McpRecoveryAgent] Initiating Pure MCP Fallback for "${stepName}"...`);
 
-    // 1. Fetch compact accessibility snapshot (only interactive elements, ~200-400 tokens)
-    const axTree = await (page as any).accessibility?.snapshot({ interestingOnly: true }).catch(() => ({}));
+    // 1. Wait for page to fully settle (network idle, DOM mutations stopped)
+    try {
+      await waitForPageSettle(page, 15000);
+      await page.waitForTimeout(5000);
+    } catch {}
 
-    // 2. Selective Vision: Only capture screenshot if axTree lacks interactive nodes
-    const hasInteractiveNodes = axTree && Object.keys(axTree).length > 0;
+    // 2. Hide the injected StatusOverlay DOM element before capturing the snapshot
+    //    so it doesn't pollute the accessibility tree with internal engine text.
+    await page.evaluate(() => {
+      const overlay = document.getElementById('__ai-healing-status-overlay__');
+      if (overlay) overlay.setAttribute('aria-hidden', 'true');
+    }).catch(() => {});
+
+    // 3. Capture accessibility tree using locator.ariaSnapshot() — the replacement
+    //    for the REMOVED page.accessibility.snapshot() API.
+    let ariaSnapshotYaml = '';
+    try {
+      ariaSnapshotYaml = await page.locator('body').ariaSnapshot() || '';
+      logger.debug(`[McpRecoveryAgent] ariaSnapshot captured (${ariaSnapshotYaml.length} chars).`);
+    } catch (err: any) {
+      logger.warn(`[McpRecoveryAgent] locator.ariaSnapshot() failed: ${err.message || err}`);
+    }
+
+    // 4. Restore the overlay visibility
+    await page.evaluate(() => {
+      const overlay = document.getElementById('__ai-healing-status-overlay__');
+      if (overlay) overlay.removeAttribute('aria-hidden');
+    }).catch(() => {});
+
+    const hasInteractiveNodes = ariaSnapshotYaml.length > 0;
     let screenshotBase64: string | undefined;
 
     if (!hasInteractiveNodes) {
-      console.log(`[McpRecoveryAgent] Accessibility tree empty/insufficient. Capturing selective JPEG screenshot...`);
-      const screenshotBuf = await page.screenshot({ type: 'jpeg', quality: 60 });
-      screenshotBase64 = screenshotBuf.toString('base64');
+      logger.debug(`[McpRecoveryAgent] Accessibility tree empty/insufficient. Capturing selective JPEG screenshot...`);
+      const screenshotBuf = await page.screenshot({ type: 'jpeg', quality: 60 }).catch(() => null);
+      if (screenshotBuf) {
+        screenshotBase64 = screenshotBuf.toString('base64');
+      }
     }
 
-    // 3. Construct lightweight input payload (<500 tokens total)
+    // 3. Construct lightweight input payload (<500 tokens total) in official MCP format
     const payload: Tier3CompactMcpInputPayload = {
       targetMetadata: {
         objectName: originalElement.ObjectName || 'Target Element',
@@ -38,30 +71,53 @@ export class McpRecoveryAgent {
         labelText: originalElement.labelText
       },
       failureContext: {
-        reason: failureReason,
-        topCandidatesSummary: (topCandidates || []).slice(0, 3).map(c => ({
-          id: c.candidateId || c.id || 0,
-          role: c.tagName || c.role || 'ELEMENT',
-          text: c.text || c.accessibleName || '',
-          cssSelector: c.cssSelector || c.functional?.cssSelector || ''
-        }))
+        reason: failureReason
       },
-      accessibilityTree: axTree || {},
+      accessibilityTree: ariaSnapshotYaml || {},
       screenshotBase64
     };
 
-    console.log(`[McpRecoveryAgent] Compact payload constructed (${Object.keys(axTree || {}).length} ARIA nodes). Evaluating agent fallback...`);
+    logger.logMcpRequest(stepName, payload);
 
-    const topSelector = payload.failureContext.topCandidatesSummary[0]?.cssSelector;
-    const fallbackSelector = topSelector || (originalElement.LocCssSelector ? `${originalElement.LocCssSelector}` : `[data-ai-healed-id="0"]`);
+    let fallbackSelector = '';
+    let aiReasoning = '';
+    let confidenceScore = 0;
+    let aiSucceeded = false;
 
-    return {
-      success: true,
+    // 4. Invoke AI reasoning if provider is attached
+    if (this.aiProvider) {
+      try {
+        logger.warn(`[McpRecoveryAgent] Invoking AI model for pure MCP recovery...`);
+        const aiResponse = this.aiProvider.askMcpAI
+          ? await this.aiProvider.askMcpAI(payload)
+          : await this.aiProvider.askAI(originalElement, []);
+        if (aiResponse) {
+          aiSucceeded = true;
+          confidenceScore = aiResponse.confidence || 0.95;
+          fallbackSelector = (aiResponse as any).healedSelector || originalElement.LocCssSelector || '';
+          aiReasoning = `[Pure MCP AI Recovery] ${aiResponse.reason || 'AI matched'}`;
+        }
+      } catch (err: any) {
+        const errDetail = err.message?.split('\n')[0] || String(err);
+        logger.warn(`[McpRecoveryAgent] AI call failed (${errDetail}). Returning failure to allow fallback to other tiers.`);
+        aiReasoning = `MCP AI call failed: ${errDetail}`;
+      }
+    } else {
+      logger.warn(`[McpRecoveryAgent] No AI provider configured. Returning failure to allow fallback to other tiers.`);
+      aiReasoning = 'No AI provider configured';
+    }
+
+    const result: Tier3McpOutputResult = {
+      success: aiSucceeded,
       healedSelector: fallbackSelector,
-      confidenceScore: 0.94,
-      visualVerificationPassed: true,
-      reasoning: `Resolved via McpRecoveryAgent using token-efficient accessibility snapshot (${hasInteractiveNodes ? 'ARIA Tree match' : 'Visual fallback'}).`,
+      confidenceScore,
+      visualVerificationPassed: aiSucceeded,
+      reasoning: aiReasoning,
       actionExecuted: false
     };
+
+    logger.logMcpResponse(stepName, result);
+
+    return result;
   }
 }

@@ -46,7 +46,10 @@ export class RelocateEngine {
       throw new Error('No candidate elements found on the current page to perform healing.');
     }
 
-    const resolvedName = (original.LocText || original.LocTitle || original.OwnInnerText || original.ObjectName || '').trim();
+    const stepNum = original.index !== undefined ? original.index + 1 : 0;
+    const stepPrefix = stepNum > 0 ? `Step ${stepNum}` : '';
+    const textName = (original.ObjectName || original.LocText || original.LocTitle || original.OwnInnerText || '').trim();
+    const resolvedName = stepPrefix ? (textName ? `${stepPrefix} (${textName})` : stepPrefix) : (textName || 'unknown');
 
     // Step 2: Apply stable-attribute pre-filters to narrow candidates pool
     let pool = this.filterByTagName(original, candidates);

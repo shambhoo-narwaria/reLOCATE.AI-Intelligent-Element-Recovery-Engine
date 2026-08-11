@@ -53,6 +53,7 @@ flowchart TD
     classDef condition fill:#2d3748,stroke:#f59e0b,stroke-width:2px,color:#f8fafc;
     classDef action fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
     classDef aiAction fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
+    classDef mcp fill:#311b92,stroke:#8b5cf6,stroke-width:2px,color:#f8fafc;
     classDef gate fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
 
     Start[Locator Fails] --> Stabilize[Wait for Page to Settle / waitForPageSettle]:::action
@@ -67,7 +68,7 @@ flowchart TD
     
     Score --> MaxScoreCheck{Is best candidate score >= 90?}:::condition
     
-    MaxScoreCheck -->|No| TriggerAI[Trigger LLM Reasoning Layer]:::aiAction
+    MaxScoreCheck -->|No| TriggerAI[Trigger LLM Candidate Reasoning Layer]:::aiAction
     MaxScoreCheck -->|Yes| MarginCheck{Is score gap to runner-up >= 5?}:::condition
     
     MarginCheck -->|No| TriggerAI
@@ -82,7 +83,15 @@ flowchart TD
     EvaluateCandidates --> LoopSafety{Candidate #1, #2, or #3 passes Safety Gates?}:::condition
     
     LoopSafety -->|Yes| TargetStamp
-    LoopSafety -->|No/All 3 Fail| Abort[Abort Healing Process & Throw Error]:::gate
+    LoopSafety -->|No / Tier 2 Failed| Tier3MCP["Escalate to Tier 3: McpRecoveryAgent (MCP Fallback)"]:::mcp
+    
+    Tier3MCP --> HideOverlay[Hide StatusOverlay via aria-hidden="true"]:::mcp
+    HideOverlay --> AxSnapshot["Capture locator('body').ariaSnapshot() (YAML)"]:::mcp
+    AxSnapshot --> McpAI["Invoke askMcpAI() Payload (<500 tokens)"]:::mcp
+    McpAI --> McpCheck{Did MCP AI heal locator?}:::mcp
+    
+    McpCheck -->|Yes| TargetStamp
+    McpCheck -->|No| Abort[Abort Self-Healing & Throw Error]:::gate
     
     TargetStamp --> Validate{Does candidate pass actionability checks?}:::condition
     
@@ -501,7 +510,36 @@ graph TD
 ### Sequential Fallback & Healing Aborts
 * **AI Safe-check**: If the AI is used, its selection must pass the safety gates. If it fails, it is bypassed, and the engine falls back to heuristic candidates.
 * **Top 3 Candidate Loop**: If the top candidate fails validation, the orchestrator logs a warning and evaluates the next best candidates sequentially (up to the top 3).
-* **Hard Abort Exception**: If all top 3 candidate options fail safety validation gates, the orchestrator halts execution, logs a fatal error, and throws a validation exception to stop the test suite before performing incorrect clicks.
+* **Tier 3 MCP Escalation**: If all Tier 2 candidates fail validation (or if forced via `FORCE_MCP_STEP`), the orchestrator escalates to `McpRecoveryAgent` as a single topmost fallback.
+* **Hard Abort Exception**: If both Tier 2 and Tier 3 MCP recovery fail, the orchestrator halts execution, logs a fatal error, and throws a validation exception to stop the test suite before performing incorrect clicks.
+
+---
+
+## 8. Tier 3 Pure MCP Recovery Layer (`McpRecoveryAgent`)
+
+When Tier 2 heuristic and candidate AI cycles fail pre-action validation, reLOCATE.AI activates **Tier 3 Pure MCP Fallback**. 
+
+```mermaid
+graph TD
+    classDef mcp fill:#311b92,stroke:#8b5cf6,stroke-width:2px,color:#f8fafc;
+    classDef payload fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#f8fafc;
+    classDef ai fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
+
+    A[Tier 2 Recovery Failed]:::mcp --> B[Wait for Page Settle & Hide StatusOverlay]:::mcp
+    B --> C["Capture locator('body').ariaSnapshot() (YAML)"]:::mcp
+    C --> D{Is ARIA Tree populated?}:::mcp
+    D -->|No| E[Capture Selective Compressed JPEG Screenshot]:::mcp
+    D -->|Yes| F[Assemble Compact Payload < 500 Tokens]:::payload
+    E --> F
+    F --> G["Invoke AI Provider: askMcpAI(payload)"]:::ai
+    G --> H[Return Healed Selector & Confidence]:::ai
+```
+
+### Key Technical Innovations
+1. **Token Efficiency (<500 tokens)**: Replaces multi-megabyte raw DOM context with native accessibility tree snapshots (`locator('body').ariaSnapshot()`) formatted in concise YAML format.
+2. **Overlay Interference Prevention**: Temporarily applies `aria-hidden="true"` to internal engine status elements (`__ai-healing-status-overlay__`) before capturing snapshots, ensuring internal status overlays do not pollute the accessibility tree.
+3. **Selective Vision**: Captures a lightweight JPEG screenshot (60% quality base64) only when the ARIA tree lacks interactive nodes.
+4. **Flexible Locator Resolution (`resolvePlaywrightLocator`)**: Supports standard CSS/XPath as well as advanced Playwright expressions (e.g., `getByRole('button', { name: 'Sign in' })`, `getByText('...')`, `locator(...)`) returned by AI.
 
 ---
 
@@ -509,12 +547,13 @@ graph TD
 
 | Component Name | Role in the System | Code Location |
 | :--- | :--- | :--- |
-| **`TestRunner`** | Coordinates execution. It loops over test steps, handles click/fill timeouts, invokes page-settle stabilization, draws highlights, captures step screenshots in the `reports/` folder with the target element highlighted, validates actionability, and executes retries. | [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/test-runner.ts) |
-| **`CandidateFinder`** | Injected script that climbs shadow root nodes and slot boundaries recursively to find valid interactive targets. Stamps elements with unique monotonic IDs. | [`src/runner/candidate-finder.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/runner/candidate-finder.ts) |
-| **`ScoringEngine`** | The mathematical evaluator. It receives the raw candidate list and processes each candidate through the 11 rule-scoring components. | [`src/scoring/scoring.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/scoring/scoring.engine.ts) |
-| **`RecoveryEngine`** | The brains. Orchestrates the decision matrix, filters candidates based on tag structure, runs pre-scoring, determines if LLM is required, and requests AI services. | [`src/recovery-engine/recovery.engine.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/recovery-engine/recovery.engine.ts) |
-| **`AI Services`** | Connects to standard APIs (OpenAI, Google Gemini, OpenRouter, vLLM) using strict structured output configurations to select the best candidate. | [`src/llm-connectors/`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/llm-connectors/) |
-| **`ElementValidator`** | Runs actionability tests (`isVisible`, `isEnabled`, `isEditable`) on healed locators to ensure they are clickable before execution proceeds. | [`src/validation/element.validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/validation/element.validator.ts) |
-| **`SafetyValidator`** & **`ValidationGates`** | Implements the OOP pre-action safety validation layer. Validates candidate text similarity (Semantic) and shape/edge similarity (Visual) to prevent clicking wrong elements. | [`src/validation/safety.validator.ts`](file:///c:/Users/shaam/Desktop/AIElementIdentification/src/validation/safety.validator.ts) |
+| **`TestRunner`** | Coordinates execution. It loops over test steps, handles click/fill timeouts, invokes page-settle stabilization, draws highlights, captures step screenshots in the `reports/` folder with the target element highlighted, validates actionability, and executes retries. | [`src/runner/test-runner.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/runner/test-runner.ts) |
+| **`CandidateFinder`** | Injected script that climbs shadow root nodes and slot boundaries recursively to find valid interactive targets. Stamps elements with unique monotonic IDs. | [`src/runner/candidate-finder.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/runner/candidate-finder.ts) |
+| **`ScoringEngine`** | The mathematical evaluator. It receives the raw candidate list and processes each candidate through the 11 rule-scoring components. | [`src/scoring/scoring.engine.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/scoring/scoring.engine.ts) |
+| **`RelocateEngine`** & **`RelocateElement`** | The brains. Orchestrates the decision matrix, filters candidates based on tag structure, runs pre-scoring, determines if LLM is required, and requests AI services or Tier 3 MCP fallback. | [`src/relocate-engine/relocate-element.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/relocate-engine/relocate-element.ts) |
+| **`McpRecoveryAgent`** | Token-efficient Tier 3 MCP accessibility tree recovery agent. Uses `locator('body').ariaSnapshot()` to heal locators when Tier 2 fails. | [`src/mcp/mcp-recovery-agent.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/mcp/mcp-recovery-agent.ts) |
+| **`AI Services`** | Connects to standard APIs (OpenAI, Google Gemini, OpenRouter, vLLM) using strict structured output configurations to select the best candidate or perform MCP AI reasoning (`askMcpAI`). | [`src/llm-connectors/`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/llm-connectors/) |
+| **`ElementValidator`** | Runs actionability tests (`isVisible`, `isEnabled`, `isEditable`) on healed locators to ensure they are clickable before execution proceeds. | [`src/validation/element.validator.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/validation/element.validator.ts) |
+| **`SafetyValidator`** & **`ValidationGates`** | Implements the OOP pre-action safety validation layer. Validates candidate text similarity (Semantic) and shape/edge similarity (Visual) to prevent clicking wrong elements. | [`src/validation/safety.validator.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/validation/safety.validator.ts) |
 
 ---

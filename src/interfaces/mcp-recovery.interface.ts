@@ -8,14 +8,8 @@ export interface Tier3CompactMcpInputPayload {
   };
   failureContext: {
     reason: string;
-    topCandidatesSummary: Array<{
-      id: number;
-      role: string;
-      text: string;
-      cssSelector: string;
-    }>;
   };
-  accessibilityTree: object;
+  accessibilityTree: string | object;
   screenshotBase64?: string;
 }
 

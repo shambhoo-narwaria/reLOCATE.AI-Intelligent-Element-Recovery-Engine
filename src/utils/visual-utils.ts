@@ -82,10 +82,10 @@ export async function highlightAndScreenshot(
   screenshotPath: string
 ): Promise<void> {
   try {
-    const box = await locator.boundingBox();
+    const box = await locator.boundingBox({ timeout: 3000 }).catch(() => null);
     if (!box || box.width === 0 || box.height === 0) {
       // Fallback: take screenshot without highlight
-      await page.screenshot({ path: screenshotPath });
+      await page.screenshot({ path: screenshotPath }).catch(() => {});
       return;
     }
 
@@ -111,10 +111,10 @@ export async function highlightAndScreenshot(
         'transition:opacity 0.15s ease',
       ].join(';');
       document.body.appendChild(overlay);
-    }, { x: box.x, y: box.y, width: box.width, height: box.height });
+    }, { x: box.x, y: box.y, width: box.width, height: box.height }).catch(() => {});
 
     // Capture screenshot with the highlighted overlay
-    await page.screenshot({ path: screenshotPath });
+    await page.screenshot({ path: screenshotPath }).catch(() => {});
 
     // Remove the highlight overlay
     await page.evaluate(() => {

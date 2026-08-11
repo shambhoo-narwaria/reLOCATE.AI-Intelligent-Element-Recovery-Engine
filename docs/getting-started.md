@@ -21,6 +21,16 @@ npm install /path/to/reLOCATE.AI
 
 Ensure your `.env` configuration file contains your AI provider credentials (e.g., `GEMINI_API_KEY`, `OPENAI_API_KEY`, etc.).
 
+Optionally customize recovery behavior in `config.json`:
+```json
+{
+  "ENABLE_MCP_FALLBACK": true,
+  "FORCE_MCP_STEP": ""
+}
+```
+* **`ENABLE_MCP_FALLBACK`**: Global flag to enable or disable Tier 3 Pure MCP accessibility tree recovery.
+* **`FORCE_MCP_STEP`**: Force Tier 3 MCP fallback directly for a specific step index (e.g., `"1"`, `"2"`, or `"all"`).
+
 ---
 
 ## Integration Example

@@ -14,6 +14,43 @@ import { IRelocateElement } from '../interfaces/relocate-element.interface';
 import { waitForPageSettle } from '../utils/page-stabilizer';
 import { McpRecoveryAgent } from '../mcp/mcp-recovery-agent';
 
+function loadConfig() {
+  try {
+    const configPath = path.join(process.cwd(), 'config.json');
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch {}
+  return { ENABLE_MCP_FALLBACK: true, FORCE_MCP_STEP: '' };
+}
+
+export function resolvePlaywrightLocator(page: Page, selectorStr: string): Locator {
+  if (!selectorStr) return page.locator('body');
+  
+  const trimmed = selectorStr.trim();
+  
+  // Clean off optional leading "page." or "await page."
+  const cleanExpr = trimmed
+    .replace(/^(?:await\s+)?page\./, '')
+    .trim();
+
+  // If expression starts with a Playwright locator method like getBy... or locator(...)
+  if (/^(?:getBy[A-Za-z]+|locator)\s*\(/.test(cleanExpr)) {
+    try {
+      const fn = new Function('page', `return page.${cleanExpr};`);
+      const loc = fn(page);
+      if (loc && (typeof loc.elementHandle === 'function' || typeof loc.click === 'function' || typeof loc.first === 'function')) {
+        return loc;
+      }
+    } catch {
+      // Fallback to standard selector if dynamic evaluation fails
+    }
+  }
+
+  // Standard Playwright locator fallback (handles CSS selectors, XPath, role=..., text=..., etc.)
+  return page.locator(trimmed);
+}
+
 export class RelocateElement implements IRelocateElement {
   constructor(
     private relocateEngine: RelocateEngine,
@@ -41,12 +78,50 @@ export class RelocateElement implements IRelocateElement {
     didHeal: boolean;
     triggeredAI: boolean;
     confidence: number;
-    reason?: string;
+    reason: string;
     candidateId?: number;
     topCandidates?: any[];
   }> {
     const originalLocator = originalElement.LocCssSelector || originalElement.LocXpath || '';
     logger.warn(`[RelocateElement] Original locator failed for "${originalElement.ObjectName}". Initializing healing...`);
+
+    const config = loadConfig();
+    const isMcpEnabled = config.ENABLE_MCP_FALLBACK !== false;
+    const currentStepNum = originalElement.index !== undefined ? originalElement.index + 1 : 0;
+    const forceMcpStep = config.FORCE_MCP_STEP !== undefined ? String(config.FORCE_MCP_STEP).trim().toLowerCase() : '';
+    const isStepForced = forceMcpStep === 'all' || forceMcpStep === String(currentStepNum);
+
+    if (isMcpEnabled && isStepForced && this.mcpRecoveryAgent) {
+      logger.warn(`[TEST CONFIG] Forcing direct Tier 3 McpRecoveryAgent fallback for Step ${currentStepNum} ("${originalElement.ObjectName || 'Target'}")...`);
+      try {
+        await waitForPageSettle(page, 15000, this.statusOverlay);
+      } catch { /* ignore */ }
+
+      try {
+        const mcpResult = await this.mcpRecoveryAgent.recoverElement(
+          page,
+          originalElement,
+          `TEST HOOK: Forced MCP fallback for step ${currentStepNum}`
+        );
+        if (mcpResult && mcpResult.success) {
+          await this.statusOverlay.show(page, 'COMPLETE').catch(() => { });
+          await page.waitForTimeout(1000).catch(() => { });
+
+          return {
+            locator: resolvePlaywrightLocator(page, mcpResult.healedSelector).first(),
+            oldLocator: originalLocator,
+            newLocator: mcpResult.healedSelector,
+            didHeal: true,
+            triggeredAI: true,
+            confidence: mcpResult.confidenceScore,
+            reason: `Direct Forced MCP Fallback (Step ${currentStepNum}): ${mcpResult.reasoning}`,
+            candidateId: mcpResult.healedCandidateId
+          };
+        }
+      } catch (err: any) {
+        logger.warn(`[RelocateElement] Forced MCP recovery failed: ${err.message || err}`);
+      }
+    }
 
     try {
       // Attempt 1: Full Tier 2 healing cycle
@@ -114,14 +189,13 @@ export class RelocateElement implements IRelocateElement {
       // TIER 3: Single-Run Topmost McpRecoveryAgent Fallback
       // Executes EXACTLY ONCE at the end only if both Tier 2 attempts failed!
       // ─────────────────────────────────────────────────────────────────
-      if (this.mcpRecoveryAgent) {
-        console.warn(`[RelocateElement] Escalating to Tier 3 McpRecoveryAgent (Single Fallback Attempt) for "${originalElement.ObjectName}"...`);
+      if (this.mcpRecoveryAgent && isMcpEnabled) {
+        logger.warn(`[RelocateElement] Escalating to Tier 3 McpRecoveryAgent (Single Fallback Attempt) for "${originalElement.ObjectName}"...`);
         try {
           const mcpResult = await this.mcpRecoveryAgent.recoverElement(
             page,
             originalElement,
-            (secondAttemptErr || firstAttemptErr)?.message || 'Both Tier 2 heuristic cycles failed pre-action validation',
-            (secondAttempt?.topCandidates || firstAttempt?.topCandidates || [])
+            (secondAttemptErr || firstAttemptErr)?.message || 'Both Tier 2 heuristic cycles failed pre-action validation'
           );
 
           if (mcpResult && mcpResult.success) {
@@ -129,7 +203,7 @@ export class RelocateElement implements IRelocateElement {
             await page.waitForTimeout(1000).catch(() => { });
 
             return {
-              locator: page.locator(mcpResult.healedSelector).first(),
+              locator: resolvePlaywrightLocator(page, mcpResult.healedSelector).first(),
               oldLocator: originalLocator,
               newLocator: mcpResult.healedSelector,
               didHeal: true,
@@ -952,7 +1026,7 @@ export class RelocateElement implements IRelocateElement {
    */
   private async resolveAndValidateHealedLocator(page: Page, originalElement: OriginalElement, healResult: any): Promise<{ locator: Locator; validationPassed: boolean }> {
     let healedEl: Locator;
-    const cssLocator = page.locator(healResult.healedLocator).first();
+    const cssLocator = resolvePlaywrightLocator(page, healResult.healedLocator).first();
     let cssVisible = false;
     try {
       cssVisible = await cssLocator.isVisible({ timeout: 500 });

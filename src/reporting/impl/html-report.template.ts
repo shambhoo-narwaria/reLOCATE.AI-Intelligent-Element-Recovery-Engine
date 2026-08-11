@@ -11,7 +11,7 @@ export class HtmlReportTemplate {
     
     const totalHealAttempted = outcomes.filter(o => o.healed).length;
     
-    const aiInvoked = outcomes.filter(o => o.triggeredAI).length;
+    const aiInvoked = outcomes.filter(o => o.triggeredAI || (o.healed && o.reason?.includes('MCP'))).length;
     
     const healedWithConfidence = outcomes.filter(o => o.healed && o.confidence !== undefined);
     const avgConfidence = healedWithConfidence.length > 0 
@@ -942,8 +942,12 @@ export class HtmlReportTemplate {
             </div>
           </div>
           <div class="step-status-tags">
-            ${step.healed ? `<span class="healed-badge">Healed</span>` : ''}
-            ${step.triggeredAI ? `<span class="ai-invoked-badge">AI Invoked</span>` : ''}
+            ${step.healed ? (
+              step.reason?.includes('MCP')
+                ? `<span class="healed-badge" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #ffffff; border: none; font-weight: 600; padding: 3px 10px; border-radius: 6px; box-shadow: 0 2px 4px rgba(99, 102, 241, 0.25);">✨ Healed by AI (MCP)</span>`
+                : (step.triggeredAI ? `<span class="healed-badge" style="background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); color: #ffffff; border: none; font-weight: 600; padding: 3px 10px; border-radius: 6px;">✨ Healed by AI</span>` : `<span class="healed-badge">Healed</span>`)
+            ) : ''}
+            ${(step.triggeredAI || (step.healed && step.reason?.includes('MCP'))) ? `<span class="ai-invoked-badge">AI Invoked</span>` : ''}
             <span class="status-pill ${step.status.toLowerCase()}">${step.status}</span>
             <span class="expand-arrow">▼</span>
           </div>
@@ -971,7 +975,7 @@ export class HtmlReportTemplate {
               ${step.healed ? `
               <div class="ai-explanation">
                 <div class="ai-explanation-header">
-                  <span class="ai-badge">${step.triggeredAI ? 'AI Model Choice' : 'Rule Engine Choice'}</span>
+                  <span class="ai-badge">${step.reason?.includes('MCP') ? 'Pure MCP AI Agent' : (step.triggeredAI ? 'AI Reasoning Model' : 'Rule Engine Choice')}</span>
                   ${step.confidence !== undefined ? `<span class="ai-confidence-badge">Confidence: ${Math.round(step.confidence * 100)}%</span>` : ''}
                 </div>
                 <div class="ai-explanation-text">

@@ -139,6 +139,33 @@ export class DebugLogger {
     this.write(`  Reason      : ${reason}\n`);
   }
 
+  logMcpRequest(stepName: string, mcpPayload: any): void {
+    const header = `\n── MCP RECOVERY REQUEST (step="${stepName}") ────────────────────────────────────\n`;
+    this.write(header);
+    
+    // Omit base64 string and accessibilityTree from raw JSON to keep log clean
+    const { screenshotBase64, accessibilityTree, ...cleanedPayload } = mcpPayload || {};
+    const loggablePayload = {
+      ...cleanedPayload,
+      screenshotAttached: !!screenshotBase64
+    };
+
+    this.write(`[MCP PAYLOAD]\n${JSON.stringify(loggablePayload, null, 2)}\n`);
+
+    // Print accessibility tree as readable multi-line YAML
+    if (accessibilityTree && typeof accessibilityTree === 'string' && accessibilityTree.length > 0) {
+      this.write(`\n[ACCESSIBILITY TREE]\n${accessibilityTree}\n\n`);
+    } else {
+      this.write(`\n[ACCESSIBILITY TREE] (empty)\n\n`);
+    }
+  }
+
+  logMcpResponse(stepName: string, response: unknown): void {
+    const header = `\n── MCP RECOVERY RESPONSE (step="${stepName}") ───────────────────────────────────\n`;
+    this.write(header);
+    this.write(`[MCP RESULT]\n${JSON.stringify(response, null, 2)}\n\n`);
+  }
+
   getLogPath(): string {
     return this.logPath;
   }

@@ -10,7 +10,7 @@ When an automation script fails to find a web element due to UI changes, dynamic
 Your test script tries its normal selectors. You do not change your test logic.
 
 2. Your Runner Calls reLOCATE.AI Only on Failure
-If your selectors fail, your script calls relocator.relocateElement(page, step).
+If your selectors fail, your script calls `relocator.relocateElement(page, step)`.
 
 3. reLOCATE.AI Recovers the Element in 2 Stages
 Stage 1: Fingerprint Recovery Engine uses local math (11 scoring rules) and candidate AI reasoning to find the element.

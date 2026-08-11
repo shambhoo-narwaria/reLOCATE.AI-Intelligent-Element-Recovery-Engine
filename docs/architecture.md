@@ -6,42 +6,52 @@ When a test automation script fails to find a web element (a click or text input
 
 ---
 
-## 1. High-Level Architecture
+## 1. High-Level Architecture & Responsibilities
 
-reLOCATE.AI operates as a **middle-layer orchestrator** between your test script and the web browser. When a script attempts an action on a locator that cannot be found, reLOCATE.AI intercepts the failure and initiates the self-healing cycle.
+**reLOCATE.AI** is built with a strict separation of concerns between the host test framework and the element recovery engine:
+
+1. **Host Execution Layer (External Runner)**:
+   - Responsible for executing recorded test steps and primary locators.
+   - Performs standard Playwright actions (`.click()`, `.fill()`).
+   - Catch block intercepts locator timeouts/failures and invokes `relocateElement(page, step)`.
+
+2. **reLOCATE.AI Recovery Engine (2-Stage Recovery Architecture)**:
+   - Invoked exclusively when all primary locators fail in the host framework.
+   - Heals broken locators in 2 progressive stages and returns a resolved Playwright `Locator` object (`Promise<Locator>`) back to the host runner.
 
 ```mermaid
 graph TD
     %% Styling
     classDef runner fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
-    classDef engine fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#f8fafc;
-    classDef ai fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#f8fafc;
-    classDef browser fill:#2d3748,stroke:#a0aec0,stroke-width:1px,color:#edf2f7;
+    classDef stage1 fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#f8fafc;
+    classDef ai fill:#062f4f,stroke:#00c9a7,stroke-width:2px,color:#8efcd4;
+    classDef stage2 fill:#311b92,stroke:#8b5cf6,stroke-width:2px,color:#f8fafc;
+    classDef action fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5;
 
-    A[Runner] -->|1. Locate Element| B{Is Element Found?}:::runner
-    B -->|Yes| C[Apply Highlight & Take Step Screenshot]:::runner
-    B -->|No| D[Stabilize Page State]:::runner
-    D -->|Scrape Interactive & Custom Elements| E[Candidate Finder]:::browser
-    E -->|Construct Multidimensional Fingerprints| F[Scoring Engine: Apply 11 Rules]:::engine
-    F -->|Calculate Fingerprint Match Scores| G{Decider: Needs AI Reasoning?}:::engine
-    G -->|No: High Confidence / Large Gap| H[Apply Best Heuristic Selector]:::engine
-    G -->|Yes: Low Confidence / Close Margin| I["AI Provider: Qwen (vLLM on EC2) / OpenAI / Gemini"]:::ai
-    I -->|Strict JSON Selection| J[Select Chosen Candidate]:::ai
-    H --> K[Resolve CSS Selector or data-ai-healed-id Fallback]:::browser
-    J --> K
-    K -->|Draw Highlight & Save step-xx.png to report/| L[Validate Element Actionability]:::runner
-    C --> M[Execute Click/Fill]:::runner
-    L -->|Pass| M
-    L -->|Fail| N[Wait & Retry Action]:::runner
-    M --> O[Record Run Outcome Stats]:::runner
-    N --> O
+    A[Host Execution Layer] -->|1. Primary Locator Fails| B[Wait for Page Settle]:::runner
+    B -->|2. Scrape Candidates| C["Stage 1: Fingerprint Recovery Engine"]:::stage1
+    C -->|Apply 11 Rules| D{Heuristic Score >= 0.90?}:::stage1
+    D -->|Yes: Score Gap >= 5| E[Stage 1A: Local Heuristic Match]:::stage1
+    D -->|No: Ambiguous Score| F["Stage 1B: LLM Candidate Reasoning (askAI)"]:::ai
+    E --> G{Pre-Action Safety Gates Passed?}:::stage1
+    F --> G
+    G -->|Yes| H[Return Resolved Locator]:::action
+    G -->|No / Stage 1 Failed| I["Stage 2: Accessibility Recovery Engine (McpRecoveryAgent)"]:::stage2
+    I -->|locator.ariaSnapshot| J["Invoke askMcpAI Payload (<500 tokens)"]:::stage2
+    J --> K{Stage 2 Success?}:::stage2
+    K -->|Yes| H
+    K -->|No| L[Throw Self-Healing Error]:::runner
+    H -->|Return Locator| M[Host Runner Performs Action & Saves Report]:::action
 ```
 
 ---
 
-## 2. Detailed Healing Decision Tree
+## 2. 2-Stage Recovery Engine Decision Tree
 
-The Orchestrator (`HealingEngine`) uses a hybrid model. It first calculates a **heuristic score** (0 to 100) using lightweight local math rules. If the local rules are highly confident and there is no ambiguity, it avoids calling expensive LLMs.
+The **reLOCATE.AI Recovery Engine** executes a 2-stage progressive pipeline upon locator failure:
+
+- **Stage 1 (Fingerprint Recovery Engine)**: Evaluates scraped Light DOM and Shadow DOM candidates across **11 mathematical scoring rules** (ObjectName, LabelText, Role, AncestorPath, ClassName, VisualSimilarity, ParentContext, NearbyText, CssSelector, DomStructure, HorizontalProximity). If candidate scores are ambiguous, prunes the context pool to the top 10 candidates and calls `askAI()`.
+- **Stage 2 (Accessibility Recovery Engine)**: If Stage 1 fails pre-action validation, Stage 2 executes as a single-run fallback (`McpRecoveryAgent`), capturing native `ariaSnapshot()` YAML accessibility trees (<500 tokens) and invoking `askMcpAI()`.
 
 To handle dynamic, slow-loading Single Page Applications (SPAs) and frameworks, the candidate collection loop retries up to **15 times** (at 2-second intervals, allowing a maximum of **30 seconds**) if zero candidates are detected, ensuring that skeleton loadings have settled.
 
@@ -85,7 +95,7 @@ flowchart TD
     LoopSafety -->|Yes| TargetStamp
     LoopSafety -->|No / Tier 2 Failed| Tier3MCP["Escalate to Tier 3: McpRecoveryAgent (MCP Fallback)"]:::mcp
     
-    Tier3MCP --> HideOverlay[Hide StatusOverlay via aria-hidden="true"]:::mcp
+    Tier3MCP --> HideOverlay["Hide StatusOverlay via aria-hidden='true'"]:::mcp
     HideOverlay --> AxSnapshot["Capture locator('body').ariaSnapshot() (YAML)"]:::mcp
     AxSnapshot --> McpAI["Invoke askMcpAI() Payload (<500 tokens)"]:::mcp
     McpAI --> McpCheck{Did MCP AI heal locator?}:::mcp

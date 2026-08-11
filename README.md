@@ -283,6 +283,7 @@ export async function getElementWithRecovery(
 
 Deep dive into the underlying design, mathematical models, and payload specifications:
 
+- **[Project Goal & Purpose](docs/project-goal.md)** — High-level summary of the recovery engine boundary and goals.
 - **[Getting Started & SDK Guide](docs/getting-started.md)** — Integration walkthrough and parameter reference.
 - **[Architecture & Decision Flow](docs/architecture.md)** — Detailed flowcharts, candidate pruning, and safety gates.
 - **[Technical Mechanics & Engine Internals](docs/technical-mechanics.md)** — Candidate finder, shadow-DOM recursion, and locator resolution.

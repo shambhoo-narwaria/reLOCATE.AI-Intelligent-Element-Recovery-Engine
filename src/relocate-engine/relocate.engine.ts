@@ -20,6 +20,35 @@ function loadConfig() {
   return { USE_AI_MODEL: false, LOG_CANDIDATES: false, AI_MAX_CANDIDATES: 10 };
 }
 
+export function isAiEnabledForStep(stepNum: number, config: any): boolean {
+  if (config.AI_STEPS === undefined || config.AI_STEPS === null) {
+    return config.USE_AI_MODEL !== false;
+  }
+
+  let aiStepsStr = '';
+  if (Array.isArray(config.AI_STEPS)) {
+    aiStepsStr = config.AI_STEPS.join(',');
+  } else {
+    aiStepsStr = String(config.AI_STEPS);
+  }
+
+  const trimmed = aiStepsStr.trim().toLowerCase();
+  if (!trimmed) {
+    return config.USE_AI_MODEL !== false;
+  }
+
+  if (trimmed === 'all' || trimmed === '*') {
+    return true;
+  }
+
+  if (trimmed === 'none' || trimmed === 'false') {
+    return false;
+  }
+
+  const allowedSteps = trimmed.split(',').map(s => s.trim());
+  return allowedSteps.includes(String(stepNum));
+}
+
 export class RelocateEngine {
   private stats = {
     totalHealAttempts: 0,
@@ -34,7 +63,7 @@ export class RelocateEngine {
     public aiProvider: AIProvider,
     public scoringEngine: ScoringEngine,
     public safetyValidator: SafetyValidator
-  ) {}
+  ) { }
 
   // Executes AI healing using DOM scraping, visual validations, and rule-scoring engines
   async heal(
@@ -78,13 +107,6 @@ export class RelocateEngine {
     if (!resolved) {
       if (onPhaseChange) await onPhaseChange('SAFETY');
       resolved = this.tryTopCandidates(original, scoredPool);
-      if (resolved) {
-        logger.logAIResponse(resolvedName || 'unknown', {
-          candidateId: resolved.candidate.candidateId,
-          confidence: resolved.confidence,
-          reason: resolved.reason
-        });
-      }
     }
 
     return {
@@ -97,7 +119,7 @@ export class RelocateEngine {
   }
 
   // Filters candidates by tag name (including shadow host tags)
-  private filterByTagName(original: OriginalElement, candidates: Candidate[]): Candidate[] {
+  public filterByTagName(original: OriginalElement, candidates: Candidate[]): Candidate[] {
     const origTag = (original.OrigTagName || '').toUpperCase().trim();
     const shadowHostTagsSet = new Set<string>();
 
@@ -130,9 +152,17 @@ export class RelocateEngine {
     const origTagFiltered = isSlot ? '' : origTag;
 
     if (origTagFiltered || shadowHostTags.length > 0) {
+      const normalizeTag = (t: string) => t.replace(/-V\d+$/i, '').toUpperCase().trim();
+      const origTagNorm = normalizeTag(origTagFiltered);
+      const shadowHostTagsNorm = shadowHostTags.map(normalizeTag);
+
       const filtered = candidates.filter(c => {
         const cTag = c.functional.tagName.toUpperCase();
-        return (origTagFiltered && cTag === origTagFiltered) || shadowHostTags.includes(cTag);
+        const cTagNorm = normalizeTag(cTag);
+
+        if (origTagNorm && (cTag === origTagFiltered || cTagNorm === origTagNorm)) return true;
+        if (shadowHostTags.includes(cTag) || shadowHostTagsNorm.includes(cTagNorm)) return true;
+        return false;
       });
 
       if (filtered.length > 0) {
@@ -203,9 +233,11 @@ export class RelocateEngine {
     onPhaseChange?: (phase: 'AI' | 'SAFETY') => Promise<void>
   ): Promise<{ candidate: Candidate; confidence: number; reason: string } | null> {
 
-    const isStepTesting = original.index === 4;
-    if (config.USE_AI_MODEL === false && !isStepTesting) {
-      console.log(`[RelocateEngine] AI Reasoning is disabled or bypassed for this step (USE_AI_MODEL=${config.USE_AI_MODEL}, isStepTesting=${isStepTesting}). Falling back directly to highest rule-based candidate.`);
+    const stepNum = original.index !== undefined ? original.index + 1 : 0;
+    const aiEnabled = isAiEnabledForStep(stepNum, config);
+
+    if (!aiEnabled) {
+      console.log(`[RelocateEngine] AI Reasoning is bypassed for Step ${stepNum} via config.json (USE_AI_MODEL=${config.USE_AI_MODEL}, AI_STEPS="${config.AI_STEPS || ''}"). Falling back directly to highest rule-based candidate.`);
       if (onPhaseChange) await onPhaseChange('SAFETY');
       return null;
     }

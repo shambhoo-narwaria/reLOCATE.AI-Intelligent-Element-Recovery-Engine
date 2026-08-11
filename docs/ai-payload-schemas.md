@@ -178,9 +178,9 @@ The AI provider enforces structured JSON output. The LLM response must match the
 
 ---
 
-## 6. Tier 3 MCP Request & Response Payload Details
+## 6. Stage 2 MCP Accessibility Payload Details
 
-In addition to Tier 2 Candidate Pool payloads, reLOCATE.AI supports ultra-compact **Tier 3 MCP accessibility tree payloads** via `McpRecoveryAgent`.
+In addition to Stage 1 Candidate Pool payloads, reLOCATE.AI supports ultra-compact **Stage 2 MCP accessibility tree payloads** via `McpRecoveryAgent`.
 
 ### A. Input Payload (`Tier3CompactMcpInputPayload`)
 

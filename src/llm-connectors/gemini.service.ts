@@ -99,16 +99,27 @@ export class GeminiService implements AIProvider {
       }
     };
 
-    logger.logAIRequest(resolvedName || 'unknown', payload);
+    logger.logAIRequest(resolvedName || 'unknown', payload, {
+      provider: 'gemini',
+      endpoint: url.replace(/\?key=.*/, '?key=***MASKED***'),
+      mode: 'Stage 1B Fingerprint AI',
+      model: this.model
+    });
 
     try {
       const response = await postJson(url, payload);
       const textResponse = response?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
       const parsed = JSON.parse(textResponse);
+      const candidateId = Number(parsed.candidateId ?? parsed.selectedCandidateId ?? parsed.candidate_id ?? parsed.id);
+      const result = {
+        candidateId,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.95,
+        reason: parsed.reason || parsed.reasoning || 'AI matched candidate'
+      };
 
-      logger.logAIResponse(resolvedName || 'unknown', parsed);
+      logger.logAIResponse(resolvedName || 'unknown', result);
 
-      return parsed;
+      return result;
     } catch (error: any) {
       const cleanMsg = error.message ? error.message.split('\n')[0] : String(error);
       console.error(`[GeminiService] Error communicating with Gemini API: ${cleanMsg}`);
@@ -170,8 +181,19 @@ ${typeof mcpPayload.accessibilityTree === 'string' ? mcpPayload.accessibilityTre
       }
     };
 
+    const stepName = mcpPayload.targetMetadata?.objectName || 'MCP Recovery';
+    logger.logAIRequest(stepName, payload, {
+      provider: 'gemini',
+      endpoint: url.replace(/\?key=.*/, '?key=***MASKED***'),
+      mode: 'Stage 2 MCP AI',
+      model: this.model
+    });
+
     const response = await postJson(url, payload);
     const textResponse = response?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    return JSON.parse(textResponse);
+    const parsed = JSON.parse(textResponse);
+    logger.logAIResponse(stepName, parsed);
+    return parsed;
   }
 }
+

@@ -2,6 +2,10 @@ export interface Tier3CompactMcpInputPayload {
   targetMetadata: {
     objectName: string;
     action: string;
+    role?: string;
+    tagName?: string;
+    locText?: string;
+    inputType?: string;
     valueToEnter?: string;
     originalSelector?: string;
     labelText?: string;

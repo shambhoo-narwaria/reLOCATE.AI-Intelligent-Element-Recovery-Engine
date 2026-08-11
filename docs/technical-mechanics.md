@@ -10,7 +10,7 @@ This document provides a deep dive into the inner workings, algorithms, and modu
 reLOCATE.AI/
 ├── runner.ts                     # Application entry point & service bootstrap
 ├── package.json                  # Dependencies & start scripts
-├── config.json                   # Engine fallback & debug config (ENABLE_MCP_FALLBACK, FORCE_MCP_STEP)
+├── config.json                   # Engine fallback & debug config (ENABLE_MCP_FALLBACK)
 ├── .env                          # Local environment settings (keys & active AI config)
 ├── .gitignore                    # Git file exclusions
 ├── Testcase/
@@ -220,10 +220,10 @@ To maintain maximum performance and prevent browser memory bloat (Chrome Out of 
 
 ---
 
-## 7. Tier 3 Pure MCP Recovery Engine (`McpRecoveryAgent`)
+## 7. Stage 2 MCP Accessibility Recovery Engine (`McpRecoveryAgent`)
 Location: [`src/mcp/mcp-recovery-agent.ts`](file:///c:/Users/shaam/Desktop/reLOCATE.AI/src/mcp/mcp-recovery-agent.ts)
 
-When both Tier 2 heuristic cycles fail pre-action validation, `RelocateElement` escalates to **Tier 3 Pure MCP Fallback**. This recovery layer acts as a single, topmost safety fallback.
+When Stage 1 fingerprint recovery cycles fail pre-action validation, `RelocateElement` escalates to **Stage 2 MCP Accessibility Recovery**. This recovery layer acts as a single, topmost safety fallback.
 
 ### Execution Workflow
 1. **Page Stabilization**: Invokes `waitForPageSettle(page, 15000)` to ensure network requests and DOM mutations have stopped.

@@ -13,8 +13,13 @@ Your test script tries its normal selectors. You do not change your test logic.
 If your selectors fail, your script calls `relocator.relocateElement(page, step)`.
 
 3. reLOCATE.AI Recovers the Element in 2 Stages
-Stage 1: Fingerprint Recovery Engine uses local math (11 scoring rules) and candidate AI reasoning to find the element.
-Stage 2: Accessibility Recovery Engine uses lightweight ARIA accessibility snapshots (<500 tokens) if Stage 1 fails.
+
+Stage 1: Fingerprint Recovery Engine
+- Stage 1A (Local Heuristic Match): Uses 11 mathematical rules to rank element fingerprints locally (0 token cost).
+- Stage 1B (LLM Candidate Reasoning): Sends the top candidate pool to the LLM (Gemini, OpenAI, or self-hosted vLLM) if heuristic scores are ambiguous.
+
+Stage 2: MCP Accessibility Recovery Engine
+- MCP Recovery Agent: Captures a native YAML accessibility tree snapshot using `locator('body').ariaSnapshot()` (<500 tokens) if Stage 1 fails pre-action safety validation.
 
 4. Your Runner Performs the Action
 reLOCATE.AI returns the healed Playwright locator. Your runner then clicks or fills the element.

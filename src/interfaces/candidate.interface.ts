@@ -187,6 +187,8 @@ export interface CandidateVisual {
   fontSize: string;
   /** Visual similarity index compared to original recorded screenshot [0, 1] */
   similarity?: number;
+  /** Bounding box rectangle */
+  boundingBox?: { x: number; y: number; width: number; height: number };
 }
 
 // ── Table Context ─────────────────────────────────────────────────────────────

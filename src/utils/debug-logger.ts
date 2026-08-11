@@ -89,7 +89,7 @@ export class DebugLogger {
     this.write(JSON.stringify(cleaned, null, 2) + '\n');
   }
 
-  logAIRequest(stepName: string, apiPayload: unknown): void {
+  logAIRequest(stepName: string, apiPayload: unknown, meta?: { provider?: string; endpoint?: string; mode?: string; model?: string }): void {
     const header = `\n── AI REQUEST (step="${stepName}") ────────────────────────────────────────────\n`;
     this.write(header);
 
@@ -97,18 +97,43 @@ export class DebugLogger {
     let payloadConfig: any = {};
     try {
       const payload = apiPayload as any;
+      const metaInfo = meta || payload?._meta || {};
+
       if (payload?.contents?.[0]?.parts?.[0]?.text) {
         rawTextPrompt = payload.contents[0].parts[0].text;
-        const { contents, ...rest } = payload;
-        payloadConfig = rest;
+        const { contents, _meta, ...rest } = payload;
+        payloadConfig = {
+          provider: metaInfo.provider || 'gemini',
+          endpoint: metaInfo.endpoint || 'https://generativelanguage.googleapis.com',
+          mode: metaInfo.mode || 'Stage 1B Fingerprint AI',
+          model: metaInfo.model || 'gemini-2.5-flash',
+          ...rest
+        };
       } else if (payload?.messages) {
         const sysMsg = payload.messages.find((m: any) => m.role === 'system')?.content || '';
-        const usrMsg = payload.messages.find((m: any) => m.role === 'user')?.content || '';
+        const usrMsgObj = payload.messages.find((m: any) => m.role === 'user')?.content;
+        const usrMsg = typeof usrMsgObj === 'string'
+          ? usrMsgObj
+          : Array.isArray(usrMsgObj)
+            ? usrMsgObj.map((c: any) => c.text || JSON.stringify(c)).join('\n')
+            : '';
         rawTextPrompt = `[SYSTEM PROMPT]\n${sysMsg}\n\n[USER PROMPT]\n${usrMsg}`;
-        const { messages, ...rest } = payload;
-        payloadConfig = rest;
+        const { messages, _meta, ...rest } = payload;
+        payloadConfig = {
+          provider: metaInfo.provider || 'openai',
+          endpoint: metaInfo.endpoint || 'https://api.openai.com/v1/chat/completions',
+          mode: metaInfo.mode || 'Stage 1B Fingerprint AI',
+          model: metaInfo.model || rest.model || 'gpt-4o',
+          ...rest
+        };
       } else {
-        payloadConfig = payload;
+        const { _meta, ...rest } = payload || {};
+        payloadConfig = {
+          provider: metaInfo.provider || 'unknown',
+          endpoint: metaInfo.endpoint,
+          mode: metaInfo.mode,
+          ...rest
+        };
       }
     } catch {}
 

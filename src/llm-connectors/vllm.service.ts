@@ -8,15 +8,17 @@ import { prepareAIContext } from './prompt-builder';
 export class VLLMService implements AIProvider {
   private openai: OpenAI;
   private modelName: string;
+  private baseURL: string;
 
   constructor() {
-    const baseURL = process.env.VLLM_BASE_URL;
-    if (!baseURL) {
+    const baseURL = process.env.VLLM_BASE_URL || 'http://localhost:8000/v1';
+    if (!process.env.VLLM_BASE_URL) {
       console.warn('[VLLMService] Warning: VLLM_BASE_URL is not defined in environment variables. Defaulting to http://localhost:8000/v1');
     }
+    this.baseURL = baseURL;
     this.openai = new OpenAI({
       apiKey: process.env.VLLM_API_KEY || 'dummy-key',
-      baseURL: baseURL || 'http://localhost:8000/v1',
+      baseURL: this.baseURL,
     });
     this.modelName = process.env.VLLM_MODEL_NAME || 'Qwen/Qwen2.5-14B-Instruct';
   }
@@ -40,16 +42,26 @@ export class VLLMService implements AIProvider {
       response_format: { type: 'json_object' } as const,
     };
 
-    logger.logAIRequest(resolvedName || 'unknown', payload);
+    logger.logAIRequest(resolvedName || 'unknown', payload, {
+      provider: 'vllm',
+      endpoint: `${this.baseURL}/chat/completions`,
+      mode: 'Stage 1B Fingerprint AI',
+      model: this.modelName
+    });
 
     const response = await this.openai.chat.completions.create(payload);
-
     const content = response?.choices?.[0]?.message?.content || '{}';
     const parsed = JSON.parse(content);
+    const candidateId = Number(parsed.candidateId ?? parsed.selectedCandidateId ?? parsed.candidate_id ?? parsed.id);
+    const result = {
+      candidateId,
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.95,
+      reason: parsed.reason || parsed.reasoning || 'AI matched candidate'
+    };
 
-    logger.logAIResponse(resolvedName || 'unknown', parsed);
+    logger.logAIResponse(resolvedName || 'unknown', result);
 
-    return parsed;
+    return result;
   }
 
   async askMcpAI(mcpPayload: import('../interfaces/mcp-recovery.interface').Tier3CompactMcpInputPayload): Promise<{
@@ -101,8 +113,18 @@ ${typeof mcpPayload.accessibilityTree === 'string' ? mcpPayload.accessibilityTre
       response_format: { type: 'json_object' } as const,
     };
 
+    const stepName = mcpPayload.targetMetadata?.objectName || 'MCP Recovery';
+    logger.logAIRequest(stepName, payload, {
+      provider: 'vllm',
+      endpoint: `${this.baseURL}/chat/completions`,
+      mode: 'Stage 2 MCP AI',
+      model: this.modelName
+    });
+
     const response = await this.openai.chat.completions.create(payload as any);
     const content = response?.choices?.[0]?.message?.content || '{}';
-    return JSON.parse(content);
+    const parsed = JSON.parse(content);
+    logger.logAIResponse(stepName, parsed);
+    return parsed;
   }
 }

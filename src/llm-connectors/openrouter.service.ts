@@ -42,7 +42,12 @@ export class OpenRouterService implements AIProvider {
       response_format: { type: 'json_object' } as const,
     };
 
-    logger.logAIRequest(resolvedName || 'unknown', payload);
+    logger.logAIRequest(resolvedName || 'unknown', payload, {
+      provider: 'openrouter',
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      mode: 'Stage 1B Fingerprint AI',
+      model: this.modelName
+    });
 
     const MAX_ATTEMPTS = 1;
     const PER_CALL_TIMEOUT_MS = 60_000;
@@ -67,19 +72,16 @@ export class OpenRouterService implements AIProvider {
 
         const content = response?.choices?.[0]?.message?.content || '{}';
         const parsed = JSON.parse(content);
+        const candidateId = Number(parsed.candidateId ?? parsed.selectedCandidateId ?? parsed.candidate_id ?? parsed.id);
+        const result = {
+          candidateId,
+          confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.95,
+          reason: (parsed.reason || parsed.reasoning || 'AI matched candidate') + ` (Model: ${response.model})`
+        };
 
-        console.log(`[OpenRouterService] Response successfully served by model: "${response.model}"`);
-        if (parsed && typeof parsed === 'object') {
-          if (typeof parsed.reason === 'string') {
-            parsed.reason = `${parsed.reason} (Model: ${response.model})`;
-          } else {
-            parsed.reason = `(Model: ${response.model})`;
-          }
-        }
+        logger.logAIResponse(resolvedName || 'unknown', result);
 
-        logger.logAIResponse(resolvedName || 'unknown', parsed);
-
-        return parsed;
+        return result;
 
       } catch (err: any) {
         lastError = err;
@@ -153,8 +155,18 @@ ${typeof mcpPayload.accessibilityTree === 'string' ? mcpPayload.accessibilityTre
       response_format: { type: 'json_object' } as const,
     };
 
+    const stepName = mcpPayload.targetMetadata?.objectName || 'MCP Recovery';
+    logger.logAIRequest(stepName, payload, {
+      provider: 'openrouter',
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      mode: 'Stage 2 MCP AI',
+      model: this.modelName
+    });
+
     const response = await (this.openai.chat.completions.create as any)(payload);
     const content = response?.choices?.[0]?.message?.content || '{}';
-    return JSON.parse(content);
+    const parsed = JSON.parse(content);
+    logger.logAIResponse(stepName, parsed);
+    return parsed;
   }
 }

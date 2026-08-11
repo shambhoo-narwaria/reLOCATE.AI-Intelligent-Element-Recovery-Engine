@@ -21,8 +21,8 @@
 ## Table of Contents
 
 - [Key Features](#key-features)
-- [System Architecture & 3-Tier Recovery](#system-architecture--3-tier-recovery)
-- [The 11-Tier Scoring Engine](#the-11-tier-scoring-engine)
+- [System Architecture & 2-Stage Recovery](#system-architecture--2-stage-recovery)
+- [The 11-Rule Scoring Engine](#the-11-rule-scoring-engine)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
   - [Environment Variables (`.env`)](#environment-variables-env)
@@ -39,7 +39,7 @@
 <table width="100%">
   <tr>
     <td width="50%">
-      <h3>Tier 3 Pure MCP Recovery Agent</h3>
+      <h3>Stage 2 MCP Accessibility Recovery</h3>
       <p>Executes an ultra-lightweight, single-run MCP fallback consuming native <code>ariaSnapshot()</code> YAML accessibility trees. Cuts token usage to under <b>500 tokens</b> (vs 30,000+ raw DOM tokens).</p>
     </td>
     <td width="50%">
@@ -81,9 +81,9 @@
 
 ---
 
-## System Architecture & 3-Tier Recovery
+## System Architecture & 2-Stage Recovery
 
-**reLOCATE.AI** operates as an intelligent middle-layer orchestrator. On locator failure, it routes recovery through a progressive 3-tiered architecture:
+**reLOCATE.AI** operates as an intelligent element recovery engine. When primary locators fail in the host runner, it routes recovery through a progressive 2-stage architecture:
 
 ```mermaid
 graph TD
@@ -94,28 +94,27 @@ graph TD
     classDef mcp fill:#311b92,stroke:#8b5cf6,stroke-width:2px,color:#f8fafc;
     classDef action fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5;
 
-    A[Test Step Execution]:::runner -->|1. Try Primary Selector| B{Element Found?}:::runner
-    B -->|Yes| C[Execute Action Directly]:::action
-    B -->|No: Failure Intercepted| D[Tier 2: Stabilize Page & Scrape Candidates]:::runner
-    D --> E[Construct Identity Fingerprints & Align 11 Scoring Rules]:::scoring
-    E --> F{Needs LLM Candidate Reasoning?}:::scoring
-    F -->|No: High Margin & Score >= 90| G[Apply Best Heuristic Candidate]:::scoring
-    F -->|Yes: Score < 90 or Close Margin| H["Trigger AI Service (OpenAI / Gemini / vLLM)"]:::ai
-    G --> I{Pre-Action Validation Gates Passed?}:::scoring
-    H --> I
-    I -->|Yes| J[Resolve CSS / XPath / Healed ID]:::action
-    I -->|No: All Tier 2 Candidates Failed| K["Tier 3: McpRecoveryAgent (MCP Fallback)"]:::mcp
-    K --> L["Capture Token-Efficient ARIA Snapshot (YAML)"]:::mcp
-    L --> M["Invoke AI MCP Model (askMcpAI)"]:::mcp
-    M --> N{MCP Recovery Success?}:::mcp
-    N -->|Yes| J
-    N -->|No| O[Throw Self-Healing Error & Stop Step]:::runner
-    J -->|Draw Visual Highlight| P[Perform Action & Save Report Metrics]:::action
+    A[Host Execution Layer] -->|1. Primary Locator Fails| B[Wait for Page Settle & Scrape Candidates]:::runner
+    B --> C["Stage 1: Fingerprint Recovery Engine"]:::scoring
+    C --> D[Construct Identity Fingerprints & Align 11 Rules]:::scoring
+    D --> E{Needs LLM Candidate Reasoning?}:::scoring
+    E -->|No: High Margin & Score >= 0.90| F[Stage 1A: Local Heuristic Match]:::scoring
+    E -->|Yes: Ambiguous Score| G["Stage 1B: LLM Candidate Reasoning (askAI)"]:::ai
+    F --> H{Pre-Action Safety Gates Passed?}:::scoring
+    G --> H
+    H -->|Yes| I[Resolve CSS / XPath / Healed ID]:::action
+    H -->|No: Stage 1 Validation Failed| J["Stage 2: MCP Accessibility Recovery Engine"]:::mcp
+    J --> K["Capture ARIA Snapshot (YAML)"]:::mcp
+    K --> L["Invoke askMcpAI Payload (<500 tokens)"]:::mcp
+    L --> M{Stage 2 Success?}:::mcp
+    M -->|Yes| I
+    M -->|No| N[Throw Self-Healing Error]:::runner
+    I -->|Return Locator| O[Host Runner Performs Action & Saves Report]:::action
 ```
 
 ---
 
-## The 11-Tier Scoring Engine
+## The 11-Rule Scoring Engine
 
 Before calling LLMs, candidate elements are ranked across **11 mathematical rules** combining continuous distance metrics and structural graph topology:
 
@@ -207,15 +206,13 @@ Manage engine fallback toggles and debug parameters:
   "USE_AI_MODEL": true,
   "LOG_CANDIDATES": true,
   "AI_MAX_CANDIDATES": 10,
-  "ENABLE_MCP_FALLBACK": true,
-  "FORCE_MCP_STEP": ""
+  "ENABLE_MCP_FALLBACK": true
 }
 ```
 
 | Parameter | Type | Description |
 | :--- | :--- | :--- |
-| `ENABLE_MCP_FALLBACK` | `boolean` | Global toggle to enable or disable Tier 3 Pure MCP accessibility recovery. |
-| `FORCE_MCP_STEP` | `string` \| `number` | Debug option to force direct Tier 3 MCP recovery for a step (e.g. `"1"`, `"16"`, or `"all"`). |
+| `ENABLE_MCP_FALLBACK` | `boolean` | Global toggle to enable or disable Stage 2 MCP accessibility recovery. |
 | `AI_MAX_CANDIDATES` | `number` | Context pool pruning cap (defaults to top 10 candidates). |
 
 ---
@@ -224,9 +221,9 @@ Manage engine fallback toggles and debug parameters:
 
 After every run, **reLOCATE.AI** generates an interactive HTML report under `.workspace/reports/Execution-Report-YYYY-MM-DD_HH-MM-SS/report.html`:
 
-- **`✨ Healed by AI (MCP)`** — Healed via Tier 3 Pure MCP YAML accessibility snapshots.
-- **`✨ Healed by AI`** — Healed via Tier 2 LLM Candidate reasoning.
-- **`Healed`** — Healed via Tier 2 local Rule Engine heuristics.
+- **`Healed by AI (MCP)`** — Healed via Stage 2 MCP YAML accessibility snapshots.
+- **`Healed by AI`** — Healed via Stage 1B LLM Candidate reasoning.
+- **`Healed`** — Healed via Stage 1A local Rule Engine heuristics.
 
 ### Diagnostic Logs
 Detailed step-by-step reasoning logs are recorded in `.workspace/logs/relocate-debug.log`, documenting candidate scores, system prompts, formatted payloads, and MCP YAML accessibility snapshots.

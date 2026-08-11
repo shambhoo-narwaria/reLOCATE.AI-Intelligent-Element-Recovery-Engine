@@ -11,7 +11,7 @@ The **`Relocator`** / **`RelocateEngine`** SDK is designed to be imported direct
 It acts as a **Pure Standalone Element Recovery Engine**:
 1. Your existing runner executes its own classical locators (`page.locator(selector)`).
 2. ONLY IF all locators fail in your runner, your catch block calls `relocator.relocateElement(page, step)`.
-3. `relocateElement()` executes the recovery pipeline (11-Rule Scoring Engine + LLM Candidate Reasoning + Tier 3 MCP Fallback) and returns the healed Playwright `Locator` object (`Promise<Locator>`).
+3. `relocateElement()` executes the 2-Stage recovery pipeline (Stage 1 Fingerprint Recovery Engine + Stage 2 MCP Accessibility Recovery Engine) and returns the healed Playwright `Locator` object (`Promise<Locator>`).
 4. Your runner receives the healed `Locator` and executes the action (`.click()`, `.fill()`, etc.) itself.
 
 ---
@@ -30,12 +30,10 @@ Ensure your `.env` configuration file contains your AI provider credentials (e.g
 Optionally customize recovery behavior in `config.json`:
 ```json
 {
-  "ENABLE_MCP_FALLBACK": true,
-  "FORCE_MCP_STEP": ""
+  "ENABLE_MCP_FALLBACK": true
 }
 ```
-* **`ENABLE_MCP_FALLBACK`**: Global flag to enable or disable Tier 3 Pure MCP accessibility tree recovery.
-* **`FORCE_MCP_STEP`**: Force Tier 3 MCP fallback directly for a specific step index (e.g., `"1"`, `"2"`, or `"all"`).
+* **`ENABLE_MCP_FALLBACK`**: Global flag to enable or disable Stage 2 MCP accessibility tree recovery.
 
 ---
 

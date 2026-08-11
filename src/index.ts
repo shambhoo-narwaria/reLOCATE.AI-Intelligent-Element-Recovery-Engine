@@ -33,6 +33,10 @@ import { VisualSimilarityRule } from './scoring/rules/visual-similarity.rule';
 import { CssSelectorRule } from './scoring/rules/css-selector.rule';
 import { HorizontalProximityRule } from './scoring/rules/horizontal-proximity.rule';
 
+import { FingerprintRecoveryStrategy } from './strategies/fingerprint-recovery.strategy';
+import { McpRecoveryStrategy } from './strategies/mcp-recovery.strategy';
+import { IRecoveryStrategy } from './interfaces/recovery-strategy.interface';
+
 export interface RelocateConfig {
   aiProvider?: 'openai' | 'gemini' | 'vllm' | 'openrouter';
   envPath?: string;
@@ -88,12 +92,20 @@ export class Relocator {
     const statusOverlay = new StatusOverlay();
     const mcpRecoveryAgent = new McpRecoveryAgent(aiProvider);
 
-    this.relocateElementPipeline = new RelocateElement(
+    const fingerprintStrategy = new FingerprintRecoveryStrategy(
       relocateEngine,
       candidateFinder,
       elementValidator,
-      statusOverlay,
-      mcpRecoveryAgent
+      statusOverlay
+    );
+    const mcpStrategy = new McpRecoveryStrategy(mcpRecoveryAgent);
+
+    const strategies: IRecoveryStrategy[] = [fingerprintStrategy, mcpStrategy];
+
+    // Instantiate RelocateElement with recovery strategy chain (2 parameters)
+    this.relocateElementPipeline = new RelocateElement(
+      strategies,
+      statusOverlay
     );
   }
 
@@ -125,3 +137,7 @@ export class Relocator {
     return result.locator;
   }
 }
+
+export * from './interfaces/recovery-strategy.interface';
+export * from './strategies/fingerprint-recovery.strategy';
+export * from './strategies/mcp-recovery.strategy';

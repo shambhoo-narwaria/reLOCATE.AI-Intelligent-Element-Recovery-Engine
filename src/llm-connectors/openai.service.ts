@@ -32,16 +32,28 @@ export class OpenAIService implements AIProvider {
       response_format: { type: 'json_object' } as const,
     };
 
-    logger.logAIRequest(resolvedName || 'unknown', payload);
+    logger.logAIRequest(resolvedName || 'unknown', payload, {
+      provider: 'openai',
+      endpoint: 'https://api.openai.com/v1/chat/completions',
+      mode: 'Stage 1B Fingerprint AI',
+      model: 'gpt-4o'
+    });
 
     const response = await this.openai.chat.completions.create(payload);
 
     const content = response?.choices?.[0]?.message?.content || '{}';
     const parsed  = JSON.parse(content);
+    const rawId   = parsed.candidateId ?? parsed.selectedCandidateId ?? parsed.candidate_id ?? parsed.id;
+    const candidateId = (rawId === null || rawId === undefined || isNaN(Number(rawId))) ? 0 : Number(rawId);
+    const result = {
+      candidateId,
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.95,
+      reason: parsed.reason || parsed.reasoning || 'AI evaluated candidate pool'
+    };
 
-    logger.logAIResponse(resolvedName || 'unknown', parsed);
+    logger.logAIResponse(resolvedName || 'unknown', result);
 
-    return parsed;
+    return result;
   }
 
   async askMcpAI(mcpPayload: import('../interfaces/mcp-recovery.interface').Tier3CompactMcpInputPayload): Promise<{
@@ -93,8 +105,18 @@ ${typeof mcpPayload.accessibilityTree === 'string' ? mcpPayload.accessibilityTre
       response_format: { type: 'json_object' } as const,
     };
 
+    const stepName = mcpPayload.targetMetadata?.objectName || 'MCP Recovery';
+    logger.logAIRequest(stepName, payload, {
+      provider: 'openai',
+      endpoint: 'https://api.openai.com/v1/chat/completions',
+      mode: 'Stage 2 MCP AI',
+      model: 'gpt-4o'
+    });
+
     const response = await this.openai.chat.completions.create(payload as any);
     const content = response?.choices?.[0]?.message?.content || '{}';
-    return JSON.parse(content);
+    const parsed = JSON.parse(content);
+    logger.logAIResponse(stepName, parsed);
+    return parsed;
   }
 }

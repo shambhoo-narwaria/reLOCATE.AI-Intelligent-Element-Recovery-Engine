@@ -42,9 +42,10 @@ export async function waitForPageSettle(page: Page, timeoutMs = 30000, statusOve
       }).catch(() => false);
       if (isInteractive) continue;
 
-      // Skip container/wrapper elements
+      // Skip container/wrapper elements (unless they are explicitly skeleton/spinner/loader elements)
       const isContainer = await loader.evaluate(el => {
         const combined = `${el.className || ''} ${el.id || ''}`.toLowerCase();
+        if (['skeleton', 'spinner', 'loader', 'loading'].some(kw => combined.includes(kw))) return false;
         return ['wrapper', 'container', 'box', 'holder', 'parent', 'block', 'layout', 'zone'].some(kw => combined.includes(kw));
       }).catch(() => false);
       if (isContainer) continue;
